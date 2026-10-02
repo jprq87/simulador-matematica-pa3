@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simulador de Casos Prácticos</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap">
+<style>
+:root{--pap:#05070d;--card:#0b1120cc;--ln:#1e2a47;--tx:#d8e4ff;--mu:#8393b8;--ac:#22d3ee;--am:#fbbf24;--bad:#ff4d6d;--ok:#a3e635;--mg:#e879f9;--hh:56px;--g1:#22d3ee;--g2:#e879f9}
+*{box-sizing:border-box}
+html{background:var(--pap)}
+html,body{margin:0;min-height:100%}
+body{font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tx);overflow-x:hidden}
+h1,h2,h3,header b{font-family:'Chakra Petch',system-ui,sans-serif;letter-spacing:.015em}
+h1{text-shadow:0 0 22px #22d3ee55;margin:0 0 .6rem}
+button{font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--am);outline-offset:2px}
+.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ---------- Background ---------- */
+#bg{position:fixed;inset:0;z-index:-2;overflow:hidden;pointer-events:none;
+  background:radial-gradient(60vmax 40vmax at 12% -10%,#22d3ee24,transparent),radial-gradient(50vmax 40vmax at 100% 8%,#e879f924,transparent),
+  linear-gradient(#22d3ee0e 1px,transparent 1px) 0 0/46px 46px,linear-gradient(90deg,#22d3ee0e 1px,transparent 1px) 0 0/46px 46px}
+#bg b{position:absolute;left:-50%;right:-50%;bottom:0;height:45vh;opacity:.55;transform:perspective(380px) rotateX(64deg);transform-origin:center bottom;animation:floor 2.6s linear infinite;
+  background:linear-gradient(#22d3ee66 2px,transparent 2px) 0 0/64px 64px,linear-gradient(90deg,#22d3ee66 2px,transparent 2px) 0 0/64px 64px;
+  -webkit-mask-image:linear-gradient(transparent,#000 75%);mask-image:linear-gradient(transparent,#000 75%)}
+@keyframes floor{to{background-position:0 64px,0 0}}
+#bg i{position:absolute;left:-170px;top:0;width:170px;height:2px;background:linear-gradient(90deg,transparent,var(--c));filter:drop-shadow(0 0 6px var(--c));will-change:transform;animation:streak linear infinite}
+#bg i.r{background:linear-gradient(270deg,transparent,var(--c));animation-direction:reverse}
+#bg i.v{left:0;top:-170px;width:2px;height:170px;background:linear-gradient(180deg,transparent,var(--c));animation-name:streak-v}
+#bg i.v.r{background:linear-gradient(0deg,transparent,var(--c))}
+@keyframes streak-v{to{transform:translateY(calc(100vh + 340px))}}
+@keyframes streak{to{transform:translateX(calc(100vw + 340px))}}
+
+/* ---------- CRT overlay: emulates Pixi CRTFilter
+   curvature 1 (only bends the lines, ~flat) · lineWidth 3 · lineContrast .3 · verticalLine off
+   noise .2 · noiseSize 1 · vignetting .3 · vignettingAlpha 1 · vignettingBlur .3 · animating on
+   Knobs: --line-speed (time per 8px line cycle), --noise, --vig-a ---------- */
+:root{--line-period:8px;--line-speed:.213s;--noise:.1;--vig-a:.1;--line-a:.10}
+/* lines: 1 + cos(v*1.2 - time) * .5 * .3  ->  +-15% brightness, ~7.85px period, scrolling down ~37px/s */
+body::after{content:"";position:fixed;left:0;right:0;top:calc(var(--line-period) * -1);bottom:0;pointer-events:none;z-index:9999;will-change:transform;
+  background:repeating-linear-gradient(to bottom,rgb(0 0 0/var(--line-a)) 0,rgb(0 0 0/calc(var(--line-a)*.853)) 1px,rgb(0 0 0/calc(var(--line-a)*.5)) 2px,rgb(0 0 0/calc(var(--line-a)*.147)) 3px,transparent 4px,rgb(0 0 0/calc(var(--line-a)*.147)) 5px,rgb(0 0 0/calc(var(--line-a)*.5)) 6px,rgb(0 0 0/calc(var(--line-a)*.853)) 7px,rgb(0 0 0/var(--line-a)) 8px);
+  animation:scan-drift var(--line-speed) linear infinite}
+@keyframes scan-drift{to{transform:translateY(var(--line-period))}}
+/* noise: 1px grain, re-seeded ~30x/s, +-.1 like the shader */
+#crt{position:fixed;inset:0;z-index:9997;overflow:hidden;pointer-events:none}
+#crt::before{content:"";position:absolute;inset:-64px;opacity:var(--noise);animation:noise .27s steps(1) infinite;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2 0 0 0 -1'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23n)'/%3E%3C/svg%3E")}
+@keyframes noise{0%{transform:translate(0,0)}12%{transform:translate(-37px,21px)}25%{transform:translate(29px,-45px)}37%{transform:translate(-11px,-33px)}50%{transform:translate(43px,14px)}62%{transform:translate(-52px,-8px)}75%{transform:translate(17px,39px)}87%{transform:translate(-26px,-49px)}}
+/* vignette: clear until 40% of the way out (1 - .3 - .3), fully dark at 70% (1 - .3) of the normalized distance, corner = 70.7% */
+#crt::after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse farthest-corner at center,transparent 56.6%,rgba(0,0,0,var(--vig-a)) 99%)}
+
+/* ---------- Glitch system: layers live on the inner .g label, never on the button itself ---------- */
+.g{position:relative;display:inline-block}
+.g::before,.g::after{content:attr(data-text);position:absolute;inset:0;opacity:0;pointer-events:none;white-space:pre-line;text-align:inherit}
+.g::before{color:var(--g1);text-shadow:-1.5px 0 var(--g1)}
+.g::after{color:var(--g2);text-shadow:1.5px 0 var(--g2)}
+.pb{--g1:#e879f9;--g2:#031418}                       /* visible on the cyan button */
+.opt>.g,.tc>.g{display:block}.opt>.g{flex:1}
+
+/* hover: short dense burst, then pause, repeats while hovered (real hover devices only, never when disabled).
+   The keyframes are generated in JS (see GLITCH CONFIG at the bottom). */
+@media(hover:hover){
+  .glitch-btn:not(:disabled):hover .g::before{animation:glitch-a var(--hov) steps(1) infinite}
+  .glitch-btn:not(:disabled):hover .g::after{animation:glitch-b var(--hov) steps(1) infinite}
+}
+/* click: declared after hover with equal specificity, so it wins */
+.glitch-btn.is-clicked:not(:disabled){animation:glitch-click var(--clk) steps(1)}
+.glitch-btn.is-clicked:not(:disabled) .g::before{animation:click-a var(--clk) steps(1)}
+.glitch-btn.is-clicked:not(:disabled) .g::after{animation:click-b var(--clk) steps(1)}
+
+/* hero headline: continuous glitch burst, then a gap (all timing in GLITCH CONFIG) */
+.glitch-text{position:relative;display:inline-block;animation:hero-shake var(--hero) steps(1) infinite}
+.glitch-text::before,.glitch-text::after{content:attr(data-text);position:absolute;inset:0;opacity:0;pointer-events:none;white-space:pre-line}
+.glitch-text::before{color:var(--g1);animation:hero-a var(--hero) steps(1) infinite}
+.glitch-text::after{color:var(--g2);animation:hero-b var(--hero) steps(1) infinite}
+
+/* ---------- Layout ---------- */
+header{position:sticky;top:0;z-index:50;height:var(--hh);display:flex;align-items:center;gap:.9rem;padding:0 1rem;background:#070b16ee;backdrop-filter:blur(12px);overflow:hidden}
+header::before{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#22d3ee44}
+header::after{content:"";position:absolute;left:0;bottom:0;width:260px;height:2px;background:linear-gradient(90deg,transparent,#22d3ee 70%,#fff);will-change:transform;animation:hl-x 5s linear infinite}
+@keyframes hl-x{from{transform:translateX(-260px)}to{transform:translateX(100vw)}}
+aside::after{content:"";position:fixed;left:288px;top:var(--hh);width:2px;height:180px;pointer-events:none;background:linear-gradient(180deg,transparent,#22d3ee 70%,#fff);will-change:transform;animation:hl-y 6s linear infinite}
+@keyframes hl-y{from{transform:translateY(-180px)}to{transform:translateY(100dvh)}}
+header b{font-size:1.05rem;font-weight:600}
+.hb{border:1px solid #22d3ee44;background:#22d3ee14;color:#fff;border-radius:8px;padding:.45rem .7rem;display:inline-flex;gap:.4rem;align-items:center;transition:.2s}
+.hb:hover{background:#22d3ee33}#mus[aria-pressed=true]{background:#22d3ee33;box-shadow:0 0 12px #22d3ee55}#mb{display:none}
+.bar{flex:1;min-width:80px;max-width:300px;margin-left:auto}.bar small{font-size:.75rem;opacity:.85}
+.bar i{display:block;height:8px;border-radius:5px;background:#ffffff33;overflow:hidden}
+.bar u{display:block;height:100%;width:40%;background:linear-gradient(90deg,#22d3ee,#e879f9);box-shadow:0 0 10px #22d3ee;transition:width .4s}
+.wrap{display:grid;grid-template-columns:290px 1fr;min-height:calc(100dvh - var(--hh))}
+aside{position:sticky;top:var(--hh);height:calc(100dvh - var(--hh));overflow:auto;background:#070b16;border-right:1px solid var(--ln);padding:1rem .8rem 0;display:flex;flex-direction:column;scrollbar-width:thin;scrollbar-color:#1e2a47 #050812}
+.led-wrap{margin-top:auto;position:sticky;bottom:0;padding:1.2rem 0 1rem;background:linear-gradient(transparent,#070b16 26%)}
+.led{padding:6px;border:1px solid #22d3ee44;border-radius:8px;background:#03060c;box-shadow:inset 0 0 14px #000,0 0 16px #22d3ee14}
+#led{display:block;width:100%;aspect-ratio:4/1}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+main{padding:1.6rem clamp(1rem,4vw,3rem);max-width:900px;width:100%}
+.nv{width:100%;text-align:left;background:0;border:0;border-radius:8px;padding:.55rem .6rem;color:var(--tx);display:flex;justify-content:space-between;align-items:center;transition:.2s}
+.nv:hover{background:#ffffff0d}.nv.on{background:#22d3ee1a;color:var(--ac);box-shadow:inset 3px 0 0 var(--ac);font-weight:600}.nv.dim{color:var(--mu)}
+.cs{display:flex;gap:.4rem;padding:0 .6rem .6rem}
+.d{width:26px;height:8px;border-radius:5px;background:var(--ln);flex:none;transition:.2s}
+.d.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}.d.cur{outline:2px solid var(--ac);outline-offset:2px}
+.crumb{color:var(--mu);font-size:.92rem}
+
+/* ---------- Components ---------- */
+.hero{position:relative;overflow:hidden;border:1px solid #22d3ee44;border-radius:16px;padding:clamp(1.4rem,5vw,3.2rem);background:radial-gradient(80% 120% at 0 0,#22d3ee1c,transparent),#080d1a;box-shadow:0 0 50px #22d3ee14}
+.lead{font-size:1.25rem;margin:0}.rot{color:var(--mg);text-shadow:0 0 18px #e879f9aa;font-weight:600}
+.caret{display:inline-block;width:.6ch;height:1.1em;background:var(--ac);margin-left:3px;vertical-align:-.15em;animation:bl 1s steps(1) infinite}@keyframes bl{50%{opacity:0}}
+.stats{display:flex;gap:2.2rem;flex-wrap:wrap;margin-top:1.4rem;color:var(--mu)}
+.stats b{display:block;font:700 2.3rem 'Chakra Petch',sans-serif;color:var(--ac);text-shadow:0 0 14px #22d3ee88}
+.card{position:relative;background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--ln);border-radius:10px;padding:1.1rem 1.3rem;margin:1rem 0;transition:border-color .3s,box-shadow .3s}
+.card:hover{border-color:#22d3ee88;box-shadow:0 0 20px #22d3ee1f}
+.card::before,.card::after{content:"";position:absolute;width:14px;height:14px;pointer-events:none}
+.card::before{top:-1px;left:-1px;border-top:2px solid var(--ac);border-left:2px solid var(--ac);border-top-left-radius:10px}
+.card::after{bottom:-1px;right:-1px;border-bottom:2px solid var(--mg);border-right:2px solid var(--mg);border-bottom-right-radius:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}.grid .card{margin:0}
+.tc{color:var(--tx);text-align:left;font:inherit;display:flex;flex-direction:column;gap:.3rem;transition:.2s}
+.tc.off{opacity:.6}
+.tc:hover{border-color:var(--ac);box-shadow:0 0 22px #22d3ee44;transform:translateY(-3px)}
+.tc .tn{color:var(--mg);font:600 .85rem 'Chakra Petch',sans-serif}.tc small{color:var(--mu)}
+.chip{display:inline-block;font-size:.85rem;color:var(--mg);border:1px solid var(--mg);box-shadow:0 0 10px #e879f944;border-radius:20px;padding:.05rem .7rem;margin-left:.4rem}
+.row,.tools{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.6rem}
+input{background:#070b16;color:var(--tx);font:inherit;padding:.55rem .7rem;border:1.5px solid #334366;border-radius:8px;width:14rem;max-width:100%}
+input:focus{border-color:var(--ac);box-shadow:0 0 0 3px #22d3ee33}
+.pb{background:var(--ac);color:#031418;box-shadow:0 0 18px #22d3ee66;border:0;border-radius:8px;padding:.6rem 1.1rem;font-weight:600;transition:.2s}.pb:hover{background:#67e8f9}
+.sb{background:#0b1120;color:var(--tx);border:1.5px solid var(--ln);border-radius:8px;padding:.5rem .8rem;display:inline-flex;gap:.4rem;align-items:center;transition:.2s}
+.sb:hover{border-color:var(--ac);background:#22d3ee12;box-shadow:0 0 14px #22d3ee33}
+.sb:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}.sb:disabled:hover{border-color:var(--ln);background:#0b1120}
+.opt{display:flex;gap:.7rem;width:100%;text-align:left;background:#0b1120;color:var(--tx);border:1.5px solid var(--ln);border-radius:8px;padding:.65rem .9rem;margin:.4rem 0;align-items:center;transition:.2s}
+.opt:hover{border-color:var(--ac);background:#22d3ee12;box-shadow:0 0 14px #22d3ee33}.opt>b{color:var(--mu);min-width:1.2rem}
+.fb{border-radius:8px;padding:.7rem .9rem;margin-top:.8rem}
+.fb.ok{background:#a3e6351a;border-left:4px solid var(--ok)}.fb.bad{background:#ff4d6d1a;border-left:4px solid var(--bad)}
+.step[hidden]{display:none}
+.tp::after{content:"";display:inline-block;width:.5ch;height:1em;background:var(--ac);margin-left:2px;vertical-align:-.12em;animation:bl 1s steps(1) infinite}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}}
+.step{animation:pop .35s;display:flex;gap:.8rem;align-items:flex-start;padding:.6rem .8rem;margin:.5rem 0;border:1px solid var(--ln);border-left:3px solid var(--mg);border-radius:8px;background:#0a0f1ed9}
+.step .n{flex:none;width:1.7rem;height:1.7rem;border-radius:50%;display:grid;place-items:center;background:var(--mg);color:#1a0620;font-weight:700;font-size:.85rem;box-shadow:0 0 12px #e879f9aa}
+.step.fin{border-left-color:var(--ok);box-shadow:0 0 16px #a3e63533}.step.fin .n{background:var(--ok);box-shadow:0 0 12px #a3e635aa}
+
+[hidden]{display:none!important}
+/* popups (menu / hint): blurred backdrop + bokeh around the trigger + glass panel */
+#pl{position:fixed;inset:0;z-index:100;display:none;background:rgba(5,7,13,.4);backdrop-filter:blur(6px) saturate(160%)}#pl.on{display:block}
+.pop{position:absolute;width:260px;padding:.5rem;border-radius:10px;background:rgba(11,17,32,.7);backdrop-filter:blur(14px) saturate(160%);border:1px solid #22d3ee66;box-shadow:0 0 30px #22d3ee40,inset 0 0 16px #22d3ee14;animation:pop .2s}
+.mi{display:block;width:100%;text-align:left;background:0;border:0;color:var(--tx);padding:.5rem .7rem;border-radius:6px;transition:.2s}.mi:hover{background:#22d3ee22;color:var(--ac)}
+/* home effects (vanilla replacement for Alpine) + charts */
+.hero>*:not(.fl){position:relative}
+.fl{position:absolute;bottom:-2rem;color:#22d3ee55;font:600 1.6rem 'Chakra Petch',monospace;animation:fly linear infinite;pointer-events:none}@keyframes fly{to{transform:translateY(-30rem) rotate(25deg);opacity:0}}
+.ch{width:100%;max-width:520px;border:1px solid var(--ln);border-radius:10px;margin:.5rem 0;background:#070b16}
+.dr{animation:dw 1.6s ease both}@keyframes dw{from{stroke-dasharray:1;stroke-dashoffset:1}to{stroke-dasharray:1;stroke-dashoffset:0}}
+.pl{animation:pu 1.4s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes pu{50%{transform:scale(1.5)}}
+.nd{animation:nlin .4s ease 1.3s both}@keyframes nlin{from{opacity:0}}
+.nl .sg{filter:drop-shadow(0 0 5px var(--c))}
+.lg{display:flex;gap:.3rem 1rem;flex-wrap:wrap;font-size:.85rem;margin:.1rem 0 .9rem}
+.g3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}.g3 .card{margin:0}
+.g3 .card:nth-child(1){border-top:3px solid #22d3ee}.g3 .card:nth-child(2){border-top:3px solid #e879f9}.g3 .card:nth-child(3){border-top:3px solid #a3e635}
+.fb:empty{display:none}.fb{animation:pop .3s}.med{color:var(--am);display:inline-flex}
+.rule{margin:.7rem 0 0;padding:.5rem .8rem;border-left:3px solid var(--am);background:#fbbf2414;border-radius:6px}
+h4{font:600 1.05rem 'Chakra Petch',sans-serif;color:var(--ac);margin:1.2rem 0 .4rem}
+.md li{margin:.25rem 0}.md p{margin:.5rem 0}
+.sl{display:flex;gap:.6rem;align-items:center;margin:.3rem 0}.sl input{width:auto;flex:1;padding:0;border:0;background:none;box-shadow:none;accent-color:currentColor}.sl output{min-width:2.5rem;text-align:right}#qd{margin:.5rem 0 0}
+/* ---------- Modal ---------- */
+.ov{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;padding:1rem;background:rgba(5,7,13,.55);backdrop-filter:blur(10px) saturate(160%)}
+.ov.on{display:flex}
+.bokeh{position:absolute;border-radius:50%;filter:blur(75px);pointer-events:none;opacity:.28;animation:bop 8s ease-in-out infinite alternate}
+.b1{width:320px;height:320px;background:#22d3ee;top:10%;left:15%}.b2{width:280px;height:280px;background:#e879f9;bottom:10%;right:15%;animation-delay:-4s}
+@keyframes bop{to{transform:scale(1.25) translate(20px,-20px)}}
+.md{position:relative;width:100%;max-width:700px;max-height:85vh;overflow:auto;padding:1.6rem;border-radius:12px;background:rgba(11,17,32,.72);backdrop-filter:blur(14px) saturate(160%);border:1px solid #22d3ee66;box-shadow:0 0 50px #22d3ee59,inset 0 0 20px #22d3ee1a;scrollbar-width:thin;scrollbar-color:#1e2a47 #050812}
+.hud{display:flex;justify-content:space-between;font:700 .75rem 'Chakra Petch',monospace;color:var(--ac);letter-spacing:.15em;margin-bottom:.5rem;padding-bottom:.25rem;border-bottom:1px solid #22d3ee33}
+
+::-webkit-scrollbar{width:7px;height:7px}::-webkit-scrollbar-track{background:#050812cc;border-radius:4px}
+::-webkit-scrollbar-thumb{background:#1e2a47;border-radius:4px;border:1px solid #22d3ee44}::-webkit-scrollbar-thumb:hover{background:var(--ac)}
+
+@media(max-width:820px){
+  .wrap{display:block}#mb{display:inline-flex}.bar small{display:none}
+  aside{display:none;position:fixed;top:var(--hh);left:0;bottom:0;width:290px;height:auto;z-index:40;box-shadow:4px 0 20px #0008}aside.open{display:block}
+}
+@media(prefers-reduced-motion:reduce){
+  .fl,.dr,.pl,.nd,body::after,header::after,aside::after,#crt,#crt::before,#bg b,#bg i,.caret,.bokeh,.glitch-btn,.g::before,.g::after,.glitch-text,.glitch-text::before,.glitch-text::after{animation:none!important}
+}
+.hero #cloud{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.hero>*:not(#cloud):not(.eq){position:relative;z-index:1}
+.hero h1,.hero .lead,.hero .stats{text-shadow:0 0 16px #080d1a,0 0 6px #080d1a}
+.hero .eq{position:absolute;right:1rem;bottom:.7rem;z-index:1;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mu);transition:opacity .35s}
+</style></head><body>
+<div id="bg"><b></b></div>
+<div id="crt"></div>
+<svg style="display:none"><symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 19a2 2 0 0 1 2-2h13"/></symbol><symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol><symbol id="i-vol" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></symbol><symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM22 9l-6 6M16 9l6 6"/></symbol><symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3zM21 16a3 3 0 1 1-3-3 3 3 0 0 1 3 3z"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol><symbol id="i-medal" viewBox="0 0 24 24"><path d="M12 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM8.5 14 7 21l5-3 5 3-1.5-7"/></symbol><symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></symbol></svg>
+
+<header>
+  <button class="hb" id="mb" aria-label="Tópicos"><svg class="ic"><use href="#i-menu"/></svg></button>
+  <b>Matemática en Acción · Simulador</b>
+  <button class="hb" id="mus" aria-pressed="false" aria-label="Música lo-fi"><svg class="ic"><use href="#i-music"/></svg></button>
+  <button class="hb" id="snb" aria-pressed="true" aria-label="Sonido"><svg class="ic"><use id="snu" href="#i-vol"/></svg></button>
+  <button class="hb glitch-btn" id="comp-btn" onclick="comp()"><svg class="ic"><use href="#i-book"/></svg><span class="g">Compendio</span></button>
+  <div class="bar"><small id="pt"></small><i><u id="pg"></u></i></div>
+</header>
+
+<div class="wrap">
+<aside id="side">
+<nav id="nav"></nav>
+  <div class="led-wrap"><div class="led"><canvas id="led" aria-hidden="true"></canvas></div><span class="sr" id="ledsr" role="status"></span></div>
+</aside>
+
+<main id="main"></main>
+</div>
+
+<div class="ov" id="m" onclick="if(event.target==this)cm()"><div class="bokeh b1"></div><div class="bokeh b2"></div>
+  <div class="md" role="dialog" aria-modal="true"><div class="hud"><span>[SYS_CORE // REF_DATA]</span><span>STATUS: SYNCHRONIZED</span></div><h3 id="mt"></h3><div id="mc"></div>
+  <div class="tools"><button class="sb glitch-btn" onclick="cm()"><span class="g">Cerrar</span></button></div></div></div>
+<script>
+const $=s=>document.querySelector(s);
+
+// ===== UX sounds (Web Audio, no files) =====
+const SND={c:null,on:true,g:false,an:null};
+['pointerdown','keydown'].forEach(t=>addEventListener(t,()=>SND.g=true,{capture:true}));
+function tone(f,d,ty='sine',v=.05,t0=0,f2){try{const A=SND.c||(SND.c=new(window.AudioContext||window.webkitAudioContext)());if(A.state=='suspended')A.resume();if(!SND.an){SND.an=A.createAnalyser();SND.an.fftSize=256;SND.an.connect(A.destination)}const o=A.createOscillator(),g=A.createGain(),t=A.currentTime+t0;o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(v,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(SND.an);o.start(t);o.stop(t+d+.02)}catch(e){}}
+function snd(k){LED.cue(k);if(!SND.on||!SND.g)return;const S2={hover:()=>tone(1400,.035,'sine',.018),click:()=>tone(620,.06,'square',.03,0,380),
+ok:()=>{tone(523,.12,'triangle',.06);tone(659,.12,'triangle',.06,.09);tone(784,.2,'triangle',.06,.18)},
+done:()=>{[523,659,784,1047].forEach((f,i)=>tone(f,.16,'triangle',.06,i*.09));tone(1047,.4,'sine',.04,.36)},
+badge:()=>{[523,659,784,1047,1319].forEach((f,i)=>tone(f,.2,'triangle',.06,i*.1));tone(1568,.6,'sine',.05,.5)},
+bad:()=>{tone(220,.28,'sawtooth',.05,0,110);tone(165,.28,'square',.03,.06,90)},info:()=>tone(880,.1,'sine',.04,0,1100),
+open:()=>tone(300,.18,'sine',.04,0,900),step:()=>tone(740,.07,'triangle',.035),unlock:()=>{tone(660,.1,'sine',.05);tone(990,.16,'sine',.05,.1)}};S2[k]&&S2[k]()}
+function mute(){SND.on=!SND.on;$('#snb').setAttribute('aria-pressed',SND.on);$('#snu').setAttribute('href',SND.on?'#i-vol':'#i-mute');if(LO.bus)LO.bus.gain.setTargetAtTime(SND.on&&LO.on?LO.vol:0,SND.c.currentTime,.1)}
+$('#snb').addEventListener('click',mute);
+document.addEventListener('mouseover',e=>{const b=e.target.closest('button,.d,input[type=range]');if(b&&!b.disabled&&!b.contains(e.relatedTarget))snd('hover')});
+document.addEventListener('click',e=>{const b=e.target.closest('button,.d');if(b&&!b.disabled&&!b.dataset.snd)snd('click');const t=e.target.closest('[data-snd]');t&&snd(t.dataset.snd)});
+// ===== lo-fi loop: generated live with the same Web Audio context (no files) =====
+// D dorian, 72 BPM, 4 bars: Dm9 - G13 - Cmaj9 - Am9. Tweak LO.bpm / LO.vol / CH / BS / SC below.
+const LO={on:false,bpm:72,vol:.3,step:0,next:0,timer:0,bus:null,fx:null,nb:null};
+const CH=[[53,57,60,64],[53,59,64],[52,55,59,62],[55,60,64,71]],BS=[38,43,36,45],SC=[62,64,65,67,69,72,74,76],mf=n=>440*2**((n-69)/12);
+function AC(){if(!SND.c)SND.c=new(window.AudioContext||window.webkitAudioContext)();const A=SND.c;if(!SND.an){SND.an=A.createAnalyser();SND.an.fftSize=256;SND.an.connect(A.destination)}A.resume();return A}
+function loGraph(A){if(LO.bus)return;
+  const lp=A.createBiquadFilter();lp.type='lowpass';lp.frequency.value=3200;lp.connect(SND.an);      // dark, tape-like top end
+  LO.bus=A.createGain();LO.bus.gain.value=0;LO.bus.connect(lp);
+  LO.fx=A.createGain();const dl=A.createDelay(1),fb=A.createGain(),dg=A.createGain();                  // dotted-eighth echo for chords/melody
+  dl.delayTime.value=60/LO.bpm*.75;fb.gain.value=.3;dg.gain.value=.4;LO.fx.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(dg);dg.connect(lp);
+  const n=A.sampleRate*2;LO.nb=A.createBuffer(1,n,A.sampleRate);const d=LO.nb.getChannelData(0);for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
+  const cb=A.createBuffer(1,A.sampleRate*4,A.sampleRate),c=cb.getChannelData(0);                       // vinyl crackle: hiss + random pops
+  for(let i=0;i<c.length;i++)c[i]=(Math.random()<.0004?(Math.random()*2-1)*.9:0)+(Math.random()*2-1)*.012;
+  const cs=A.createBufferSource(),ch=A.createBiquadFilter(),cg=A.createGain();cs.buffer=cb;cs.loop=true;ch.type='highpass';ch.frequency.value=1200;cg.gain.value=.5;
+  cs.connect(ch);ch.connect(cg);cg.connect(LO.bus);cs.start()}
+function nt(f,t,d,ty,v,s,att=.01){const A=SND.c,o=A.createOscillator(),g=A.createGain();o.type=ty;o.frequency.value=f;
+  g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(v,t+att);g.gain.exponentialRampToValueAtTime(.0001,t+d);
+  o.connect(g);g.connect(LO.bus);s&&g.connect(LO.fx);o.start(t);o.stop(t+d+.05)}
+function nz(t,d,ty,f,v){const A=SND.c,s=A.createBufferSource(),b=A.createBiquadFilter(),g=A.createGain();s.buffer=LO.nb;b.type=ty;b.frequency.value=f;
+  g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+d);s.connect(b);b.connect(g);g.connect(LO.bus);s.start(t,Math.random());s.stop(t+d+.02)}
+function kick(t){const A=SND.c,o=A.createOscillator(),g=A.createGain();o.frequency.setValueAtTime(130,t);o.frequency.exponentialRampToValueAtTime(42,t+.12);
+  g.gain.setValueAtTime(.7,t);g.gain.exponentialRampToValueAtTime(.0001,t+.28);o.connect(g);g.connect(LO.bus);o.start(t);o.stop(t+.3)}
+function beat(i,bar,t){
+  if(i==0||i==10)CH[bar].forEach((n,k)=>{nt(mf(n),t+k*.018,i?1.2:2.6,'triangle',i?.05:.09,1,.03);nt(mf(n+12),t+k*.018,i?.8:1.6,'sine',i?.02:.04,1,.03)});   // soft "rhodes"
+  if(i==0||i==8||(i==14&&Math.random()<.4))nt(mf(BS[bar]),t,i?.5:.9,'sine',.34,0,.015);
+  if(i==0||(i==10&&bar%2==0)||(i==7&&Math.random()<.3))kick(t);
+  if(i==4||i==12){nz(t,.16,'bandpass',1800,.3);nt(190,t,.1,'sine',.18,0,.002)}
+  if(i%2==0)nz(t,.04,'highpass',7000,.05+Math.random()*.06);else if(Math.random()<.2)nz(t,.03,'highpass',8000,.03);
+  if(i%2==0&&Math.random()<.22)nt(mf(SC[Math.floor(Math.random()*SC.length)]),t,.7,'triangle',.11,1,.005)}                  // random pentatonic-ish pluck
+function sched(){const A=SND.c,sd=60/LO.bpm/4;while(LO.next<A.currentTime+.2){const i=LO.step%16;beat(i,(LO.step>>4)%4,LO.next+(i%2?sd*.18:0));LO.next+=sd;LO.step++}}   // swung 16ths
+function lofi(on){const A=AC();loGraph(A);LO.on=on;clearInterval(LO.timer);
+  if(on){LO.step=0;LO.next=A.currentTime+.1;LO.timer=setInterval(sched,50);LO.bus.gain.setTargetAtTime(SND.on?LO.vol:0,A.currentTime,.8)}
+  else LO.bus.gain.setTargetAtTime(0,A.currentTime,.3);
+  $('#mus').setAttribute('aria-pressed',on)}
+$('#mus').addEventListener('click',()=>lofi(!LO.on));
+document.addEventListener('visibilitychange',()=>{if(!LO.on)return;const A=SND.c;if(document.hidden)A.suspend();else{A.resume();LO.next=Math.max(LO.next,A.currentTime+.1)}});
+
+// ===== LED dot-matrix (32x8): every snd() cue has a sprite; idle = scanner, music on = equalizer =====
+// Priority: 3 milestone (boot, badge, done) > 2 result (ok, bad, unlock) > 1 info/open/step > 0 hover/click. A cue never interrupts a higher one.
+// Sprites are 8x8 strings: '.' = off, letter = colour (c cyan, g green, a amber, r red, m magenta, w white).
+const RM=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const LC={c:'#22d3ee',g:'#a3e635',a:'#fbbf24',r:'#ff4d6d',m:'#e879f9',w:'#e8faff'};
+const SP={
+  check:['........','.......g','......gg','g....gg.','gg..gg..','.gggg...','..gg....','........'],
+  cross:['r......r','rr....rr','.rr..rr.','..rrrr..','..rrrr..','.rr..rr.','rr....rr','r......r'],
+  info:['...cc...','...cc...','........','..ccc...','...cc...','...cc...','...cc...','..cccc..'],
+  star:['...aa...','...aa...','aaaaaaaa','.aaaaaa.','..aaaa..','.aaaaaa.','.aa..aa.','.a....a.'],
+  cup:['a.aaaa.a','a.aaaa.a','a.aaaa.a','.aaaaaa.','..aaaa..','...aa...','...aa...','..aaaa..'],
+  lockC:['..aaaa..','.aa..aa.','.a....a.','.a....a.','aaaaaaaa','aaa..aaa','aaa..aaa','aaaaaaaa'],
+  lockO:['..gggg..','.gg..gg.','.g......','.g......','gggggggg','ggg..ggg','ggg..ggg','gggggggg'],
+  chev:['c..','.c.','..c','.c.','c..']};
+const bc=new Array(256),ba=new Array(256),EQ=new Array(16).fill(0),FD=new Uint8Array(128);
+const hs=n=>{n=Math.imul(n^61,2654435761);n^=n>>>15;n=Math.imul(n,2246822507);return(n^n>>>13)>>>0};
+function px(x,y,c,a=1){x=Math.round(x);y=Math.round(y);if(x<0||x>31||y<0||y>7)return;const i=y*32+x;if(a>=ba[i]){bc[i]=c;ba[i]=a}}
+function spr(rows,ox,oy,o={}){rows.forEach((r,y)=>{const dx=o.dx?o.dx(y):0;[...r].forEach((ch,x)=>{if(ch!='.'&&(!o.m||o.m(x,y)))px(ox+x+dx,oy+y,LC[o.c||ch],o.a??1)})})}
+function sp(t,c,d,seed=7){if(RM||t<0)return;const a=1-Math.min(1,t/d);for(let i=0;i<7;i++){const h=hs(i*97+seed+(t/110|0)*13),x=h%32;if(x>=11&&x<21)continue;px(x,(h>>5)%8,c,a*.9)}}   // sparkles beside the sprite
+function ring(t,c){if(RM||t<0)return;const r=Math.floor(t/45)%26;for(let k=0;k<3;k++){const d=r-k*2,a=.8-k*.25;if(d>=6&&d<=16&&a>0){[3,4].forEach(y=>{px(16-d,y,c,a);px(15+d,y,c,a)})}}}   // waves leaving the sprite
+const CUE={
+  hover:{p:0,d:480,f:(t,s)=>{const a=Math.max(0,1-t/480),x=s%32,y=(s>>5)%8;px(x,y,LC.c,.9*a);if(t>80)[[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>px(x+dx,y+dy,LC.c,.45*a))}},
+  click:{p:0,d:180,f:t=>{const z=t<90?2:4,a=1-t/180;for(let i=0;i<z;i++)for(let j=0;j<z;j++)if(z==2||i==0||j==0||i==z-1||j==z-1)px(16-z/2+i,4-z/2+j,LC.w,a)}},
+  open:{p:1,d:420,f:t=>{const z=Math.min(8,2+2*Math.floor(t/70));for(let i=0;i<z;i++)for(let j=0;j<z;j++)if(i==0||j==0||i==z-1||j==z-1)px(16-z/2+i,4-z/2+j,LC.c,1)}},
+  step:{p:1,d:340,f:t=>{const x=8+Math.floor(t/340*14);spr(SP.chev,x-3,1,{a:.35});spr(SP.chev,x,1)}},
+  info:{p:1,d:450,f:t=>spr(SP.info,12,0,{a:t<120?t/120:t<330?1:1-(t-330)/120})},
+  ok:{p:2,d:820,sr:'Correct',f:t=>{const w=Math.min(8,Math.ceil(t/25));spr(SP.check,12,0,{m:x=>x<w});sp(t-300,LC.g,700)}},
+  bad:{p:2,d:700,sr:'Incorrect',f:t=>{if(RM||!((t>=140&&t<200)||(t>=340&&t<390)))spr(SP.cross,12,0,{a:t>550?1-(t-550)/150:1,dx:y=>RM||t>=340?0:(hs(y*9+(t/50|0))%5)-2});
+    if(t<330&&!RM)for(let y=0;y<8;y++)if(hs(y+(t/60|0)*3)%3==0){px(0,y,LC.r,.7);px(1,y,LC.r,.4);px(31,y,LC.r,.7);px(30,y,LC.r,.4)}}},
+  unlock:{p:2,d:760,sr:'Unlocked',f:t=>{if(t<300)spr(SP.lockC,12,0);else{spr(SP.lockO,12,t<380?-1:0);sp(t-300,LC.g,440,5)}}},
+  done:{p:3,d:1500,sr:'Completed',f:t=>{const e=Math.min(1,t/220);spr(SP.cup,12,Math.round(8*(1-e*(2-e))),{a:.85+.15*Math.sin(t/60)});sp(t-220,LC.a,1280,3)}},
+  badge:{p:3,d:1900,sr:'Achievement unlocked',f:t=>{if(t>=420||Math.floor(t/70)%2==0)spr(SP.star,12,0);ring(t-420,LC.a);sp(t-300,LC.w,1500,11)}},
+  boot:{p:3,d:900,f:t=>{const h=t/900*44;for(let x=0;x<32;x++){const d=h-x;if(d<0)continue;const a=d<2?1:Math.max(0,1-(d-2)/14);for(let y=0;y<8;y++)px(x,y,d<1.5?LC.w:LC.c,a*.55)}}}};
+const LED={cur:null,last:0,lh:0,cue(k){const c=CUE[k];if(!c)return;const n=performance.now(),u=LED.cur;
+  if(k=='hover'){if(n-LED.lh<160)return;LED.lh=n}
+  if(u&&n-u.t0<u.c.d&&c.p<u.c.p)return;
+  LED.cur={c,t0:n,seed:hs(n|0)};if(c.sr){const e=$('#ledsr');e.textContent='';setTimeout(()=>e.textContent=c.sr,50)}}};
+function idle(n){const p=Math.floor(n/85)%62,x=p<32?p:62-p,d=p<32?-1:1;for(let k=0;k<6;k++){px(x+d*k,3,LC.c,.5*(1-k/6));px(x+d*k,4,LC.c,.5*(1-k/6))}}
+function eq(){SND.an.getByteFrequencyData(FD);for(let i=0;i<16;i++){const b=Math.round(1+i*i*.33+i*1.2),v=Math.max(FD[b],FD[b+1])/150*8;EQ[i]=Math.max(v,EQ[i]-.6);
+  for(let y=0;y<Math.min(8,Math.round(EQ[i]));y++)px(2*i,7-y,i>10||y>=6?LC.m:LC.c,.9)}}
+const cv=$('#led'),cx=cv.getContext('2d');let off;
+function ledFit(){const d=devicePixelRatio||1;cv.width=256*d;cv.height=64*d;const P=cv.width/32;off=document.createElement('canvas');off.width=cv.width;off.height=cv.height;
+  const o=off.getContext('2d');o.fillStyle='#0c1c27';for(let y=0;y<8;y++)for(let x=0;x<32;x++){o.beginPath();o.arc((x+.5)*P,(y+.5)*P,P*.34,0,7);o.fill()}}
+function ledLoop(n){requestAnimationFrame(ledLoop);if(n-LED.last<33)return;LED.last=n;bc.fill(null);ba.fill(0);
+  let c=LED.cur;if(c&&n-c.t0>=c.c.d)c=LED.cur=null;
+  if(c){const t=n-c.t0,r=c.c.d-t;c.c.f(t,c.seed);if(r<180)for(let i=0;i<256;i++)ba[i]*=r/180}
+  else if(!RM)LO.on&&SND.on&&SND.an?eq():idle(n);
+  const P=cv.width/32;cx.clearRect(0,0,cv.width,cv.height);cx.drawImage(off,0,0);cx.shadowBlur=P*.9;
+  for(let i=0;i<256;i++){if(!bc[i]||ba[i]<=.02)continue;cx.globalAlpha=Math.min(1,ba[i]);cx.fillStyle=cx.shadowColor=bc[i];cx.beginPath();cx.arc((i%32+.5)*P,((i>>5)+.5)*P,P*.36,0,7);cx.fill()}
+  cx.globalAlpha=1;cx.shadowBlur=0}
+ledFit();addEventListener('resize',ledFit);requestAnimationFrame(ledLoop);if(!RM)LED.cue('boot');
+
+// glitch layers copy their own text, so data-text never has to be maintained by hand
+// .g -> ghost text = its own text ('' if it holds math: $..$ or KaTeX). Set data-text="" yourself to switch the ghost off. .glitch-text: <br> becomes a line break.
+function glitchFill(root=document){
+  root.querySelectorAll('.g:not([data-text])').forEach(g=>{g.dataset.text=(/\$/.test(g.textContent)||g.querySelector('.katex'))?'':g.textContent.trim()});
+  root.querySelectorAll('.glitch-text:not([data-text])').forEach(h=>h.dataset.text=h.innerHTML.replace(/<br\s*\/?>/g,'\n'));
+}
+glitchFill();new MutationObserver(()=>glitchFill()).observe(document.body,{childList:true,subtree:true});
+
+// click glitch (restarts cleanly on rapid clicks)
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.glitch-btn');if(!b||b.disabled)return;
+  b.classList.remove('is-clicked');void b.offsetWidth;b.classList.add('is-clicked');
+});
+document.addEventListener('animationend',e=>{if(e.animationName==='glitch-click')e.target.classList.remove('is-clicked')});
+
+// ===== GLITCH CONFIG: tune everything here =====
+// cycle = one full loop, active = part of it that glitches, frames = number of distinct poses in the active part
+const G={hov:{cycle:2.6,active:.6,frames:14},clk:{dur:.45,frames:10},hero:{cycle:3.5,active:2.5,frames:50}};
+const R=(a,b)=>a+Math.random()*(b-a),Sg=()=>Math.random()<.5?-1:1;
+const clip=()=>{const t=R(0,80);return`inset(${t.toFixed(0)}% 0 ${R(0,95-t).toFixed(0)}% 0)`};
+const kf=(name,n,pct,f,end)=>{let o=`@keyframes ${name}{`;for(let i=0;i<n;i++)o+=`${(pct*i/n).toFixed(2)}%{${f(i,n)}}`;return o+(pct<100?`${pct.toFixed(2)}%,100%`:'100%')+`{${end}}}`};
+const lay=(amp,op,off=0)=>()=>Math.random()<off?'opacity:0':`opacity:${op};clip-path:${clip()};transform:translate(${(Sg()*R(amp/3,amp)).toFixed(1)}px,0)`;
+const gone='opacity:0;transform:none';
+const clkShake=(i,n)=>{const k=1-i/n;return`transform:translate(${(Sg()*R(2,5)*k).toFixed(1)}px,${(Sg()*R(0,2)*k).toFixed(1)}px) skewX(${(Sg()*R(3,10)*k).toFixed(1)}deg);filter:${i%3==1?'brightness(1.6) saturate(2)':`hue-rotate(${R(0,360).toFixed(0)}deg)`}`};
+const heroShake=()=>Math.random()<.3?`transform:translate(${(Sg()*R(1,3)).toFixed(1)}px,${(Sg()*R(0,1)).toFixed(1)}px) skewX(${(Sg()*R(1,4)).toFixed(1)}deg)`:'transform:none';
+const {hov,clk,hero}=G,hp=hov.active/hov.cycle*100,ep=hero.active/hero.cycle*100,rootSt=document.documentElement.style;
+rootSt.setProperty('--hov',hov.cycle+'s');rootSt.setProperty('--clk',clk.dur+'s');rootSt.setProperty('--hero',hero.cycle+'s');
+const gs=document.createElement('style');
+gs.textContent=[
+  kf('glitch-a',hov.frames,hp,lay(3,.8),gone),kf('glitch-b',hov.frames,hp,lay(3,.8),gone),
+  kf('click-a',clk.frames,100,lay(8,1),gone),kf('click-b',clk.frames,100,lay(8,1),gone),
+  kf('glitch-click',clk.frames,100,clkShake,'transform:none;filter:none'),
+  kf('hero-a',hero.frames,ep,lay(5,.85,.2),gone),kf('hero-b',hero.frames,ep,lay(5,.85,.2),gone),
+  kf('hero-shake',hero.frames,ep,heroShake,'transform:none')
+].join('\n');
+document.head.appendChild(gs);
+
+// modal + mobile sidebar
+// ===== home effects, vanilla (replaces Alpine's home()): floating symbols, counters, rotating words =====
+// Call initHome({words:[...]}) after the hero is (re)injected. Loops stop by themselves when the hero leaves the DOM.
+function initHome(o={}){
+  const hero=$('.hero'),el=$('#rot');if(!hero)return;
+  const W=o.words||['do something cool','build fast prototypes','ship pixel-perfect UI','glitch responsibly'],SY=o.symbols||['x²','√','|x|','≤','Δ','∑','π','±','≥','ƒ(x)'],rm=matchMedia('(prefers-reduced-motion:reduce)').matches;
+  hero.querySelectorAll('.fl').forEach(e=>e.remove());
+  if(!rm)for(let i=0;i<16;i++){const f=document.createElement('span');f.className='fl';f.textContent=SY[i%SY.length];
+    f.style.cssText=`left:${(i*6.4+3)%96}%;animation-duration:${8+(i*7)%9}s;animation-delay:-${(i*3)%10}s;font-size:${1+(i%4)*.5}rem`;hero.prepend(f)}
+  hero.querySelectorAll('[data-count]').forEach(b=>{const to=+b.dataset.count;if(rm){b.textContent=to;return}
+    const t0=performance.now();(function st(t){if(!b.isConnected)return;const q=Math.min((t-t0)/1200,1);b.textContent=Math.round(to*q);if(q<1)requestAnimationFrame(st)})(t0)});
+  if(!el)return;if(rm){el.textContent=W[0];return}
+  let i=0,j=0,d=false;   // type 70 ms/char, hold 1.4 s, delete 35 ms/char, next word
+  (function tick(){if(!el.isConnected)return;const w=W[i];el.textContent=w.slice(0,j);
+    if(!d&&j==w.length){d=true;setTimeout(tick,1400);return}
+    if(d&&j==0){d=false;i=(i+1)%W.length}
+    j+=d?-1:1;setTimeout(tick,d?35:70)})();
+}
+
+// ===== number line (SVG, same look as plot()) =====
+// numLine({min,max,step, sol:"(-inf,-2] U [3,inf)"  |  segs:[{a,b,ca,cb}],  pts:[[x,'label','g']], name, label, animate:false})
+//   [ ] = closed dot, ( ) = open dot, inf/∞ = arrow to the end of the axis.  point colours: c cyan, g green, a amber, r red, m magenta
+function nlParse(str){
+  const val=v=>{v=v.replace(/\s/g,'').replace('−','-');if(/inf|∞/i.test(v))return v[0]=='-'?-Infinity:Infinity;const[n,d]=v.split('/');return d?+n/+d:+n};
+  return str.split(/\s*(?:∪|\bU\b|\bor\b)\s*/i).map(t=>t.trim().match(/^([\[\(\]])\s*([^,;]+?)\s*[,;]\s*([^\]\)\[]+?)\s*([\]\)\[])$/)).filter(Boolean)
+    .map(m=>({a:val(m[2]),b:val(m[3]),ca:m[1]=='[',cb:m[4]==']'}));
+}
+function numLine(o){
+  const min=o.min??-6,max=o.max??6,step=o.step??1,segs=o.segs||(o.sol?nlParse(o.sol):[]),pts=o.pts||[],an=o.animate===false?'':'dr',col=o.color||'#22d3ee',
+    PC={c:'#22d3ee',g:'#a3e635',a:'#fbbf24',r:'#ff4d6d',m:'#e879f9'},W=440,H=96,p=30,y=54,
+    X=x=>x==-Infinity?14:x==Infinity?W-14:p+(Math.min(max,Math.max(min,x))-min)/(max-min)*(W-2*p),f=v=>String(Math.round(v*1e6)/1e6).replace('-','−'),
+    dot=(x,closed)=>`<circle class="nd" cx="${X(x)}" cy="${y}" r="6.5" fill="${closed?col:'#05070d'}" stroke="${col}" stroke-width="2.5"/>`;
+  let g=`<svg class="ch nl" viewBox="0 0 ${W} ${H}" role="img" aria-label="${String(o.label||o.sol||'Number line').replace(/"/g,'&quot;')}">`;
+  if(o.name)g+=`<text x="${p}" y="16" font-size="12" fill="${col}">— ${o.name}</text>`;
+  g+=`<path d="M12 ${y}H${W-12}M20 ${y-5}L12 ${y}L20 ${y+5}M${W-20} ${y-5}L${W-12} ${y}L${W-20} ${y+5}" stroke="#94a3b8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+  for(let i=0,n=Math.floor((max-min)/step+1e-9);i<=n;i++){const v=min+i*step,x=X(v);g+=`<path d="M${x} ${y-5}V${y+5}" stroke="#94a3b8"/><text x="${x}" y="${y+23}" font-size="11" fill="#5b667a" text-anchor="middle">${f(v)}</text>`}
+  if(!segs.length)g+=`<text x="${W/2}" y="${y-14}" font-size="20" fill="#94a3b8" text-anchor="middle">∅</text>`;
+  segs.forEach(s=>{if(s.a!=s.b)g+=`<path class="sg ${an}" style="--c:${col}" d="M${X(s.a)} ${y}H${X(s.b)}" pathLength="1" stroke="${col}" stroke-width="6" fill="none"/>`;
+    if(isFinite(s.a))g+=dot(s.a,s.ca);if(isFinite(s.b)&&s.b!=s.a)g+=dot(s.b,s.cb)});
+  pts.forEach(([x,t,k])=>{const c=PC[k]||k||PC.g;g+=`<circle cx="${X(x)}" cy="${y}" r="5" class="pl" fill="${c}" style="filter:drop-shadow(0 0 6px ${c})"/><text x="${X(x)}" y="${y-14}" font-size="11" fill="${c}" text-anchor="middle">${t||''}</text>`});
+  return g+'</svg>';
+}
+const nlMount=root=>root.querySelectorAll('[data-nl]').forEach(e=>{try{e.innerHTML=numLine(JSON.parse(e.dataset.nl))}catch(x){}});
+
+// background light streaks
+const bg=$('#bg'),cols=Math.floor(innerWidth/46),rows=Math.floor(innerHeight/46),snap=n=>(1+Math.floor(Math.random()*Math.max(1,n-1)))*46;
+for(let i=0;i<26;i++){const s=document.createElement('i'),v=i%2,dur=4.5+Math.random()*3.5;   // 13 horizontal + 13 vertical, 4.5-8 s per pass
+  s.className=(v?'v ':'')+(Math.random()<.5?'r':'');   // r = travels the other way
+  s.style.cssText=`--c:${i%3?'#22d3ee':'#fb923c'};${v?`left:${snap(cols)}px`:`top:${snap(rows)}px`};animation-duration:${dur.toFixed(1)}s;animation-delay:-${(Math.random()*dur).toFixed(1)}s`;bg.appendChild(s)}
+
+// ===================== GAME: data + engine (content from Contenido.md) =====================
+const ic=n=>`<svg class="ic"><use href="#i-${n}"/></svg>`;
+function math(e){if(window.renderMathInElement)renderMathInElement(e,{delimiters:[{left:'$',right:'$',display:false}],throwOnError:false})}
+function nums(v,n){let s=v.toLowerCase().replace(/x\d?\s*=/g,'').replace(/;/g,' ');if(n==1){const m=+s.replace(/\s/g,'').replace(',','.');if(!isNaN(m))return[m];const u=s.match(/-?\d+(?:[.,]\d+)?/g);return u&&u.length==1?[+u[0].replace(',','.')]:[]}const r=(s.match(/-?\d+(?:[.,]\d+)?/g)||[]).map(x=>+x.replace(',','.'));return r.length==n?r:(s.replace(/,/g,' ').match(/-?\d+(?:\.\d+)?/g)||[]).map(Number)}
+function typeIn(el,fast,cb){const u=[];el.textContent.split(/(\$[^$]+\$)/).forEach(p=>{if(p[0]=='$'&&p.length>2)u.push(window.katex?katex.renderToString(p.slice(1,-1),{throwOnError:false}):p);else for(const c of p)u.push(c=='<'?'&lt;':c=='>'?'&gt;':c=='&'?'&amp;':c)});
+if(fast||matchMedia('(prefers-reduced-motion:reduce)').matches){el.innerHTML=u.join('');cb&&cb();return}
+el.innerHTML='';el.classList.add('tp');let i=0;const st=()=>{if(!el.isConnected)return;const n=Math.min(i+2,u.length);el.insertAdjacentHTML('beforeend',u.slice(i,n).join(''));i=n;if(i<u.length)setTimeout(st,14);else{el.classList.remove('tp');cb&&cb()}};st()}
+function qviz(){const bx=$('#qv');if(!bx)return;const K=['a','b','c'],C=['#22d3ee','#e879f9','#a3e635'],V={a:1,b:-2,c:-3},P={a:0,b:-2,c:-3},X=x=>200+x*30,Y=y=>120-y*11;let run=1;
+bx.innerHTML='<svg class="ch" viewBox="0 0 400 240"><path d="M0 120H400M200 0V240" stroke="#334366" fill="none"/><path id="qc" pathLength="1" class="dr" stroke="#22d3ee" stroke-width="3" fill="none"/><g id="qr"></g><circle id="qp" r="4" fill="#fbbf24"/></svg>'+K.map((k,i)=>`<label class="sl" style="color:${C[i]}"><b>${k}</b><input type="range" min="-5" max="5" step=".5" value="${V[k]}" aria-label="${k}"><output>${V[k]}</output></label>`).join('')+'<p id="qd"></p>';
+const O=bx.querySelectorAll('output'),f=n=>Math.round(n*100)/100;
+const draw=()=>{const a=P.a,m=P.b,c=P.c;let d='';for(let i=0;i<=80;i++){const x=-6.5+13*i/80;d+=(i?'L':'M')+X(x).toFixed(1)+' '+Y(a*x*x+m*x+c).toFixed(1)}$('#qc').setAttribute('d',d);
+const D=m*m-4*a*c,ok=Math.abs(a)>.05,r=ok&&D>=0?[(-m-Math.sqrt(D))/(2*a),(-m+Math.sqrt(D))/(2*a)].sort((p,q)=>p-q):[];
+$('#qr').innerHTML=r.map(x=>`<circle class="pl" cx="${X(x)}" cy="120" r="6" fill="#a3e635"/>`).join('');
+const p=$('#qp');if(ok){p.setAttribute('cx',X(-m/(2*a)));p.setAttribute('cy',Y(c-m*m/(4*a)));p.style.display=''}else p.style.display='none';
+$('#qd').innerHTML=`<b style="color:var(--ac)">Δ = ${f(D)}</b> · `+(!ok?'con a ≈ 0 la ecuación es lineal':Math.abs(D)<.01?`una solución real: x = ${f(r[0])}`:D>0?`dos soluciones reales: x₁ = ${f(r[0])}, x₂ = ${f(r[1])}`:'sin soluciones reales: la curva no toca el eje x')};
+const loop=()=>{let g=0;for(const k of K){const d=V[k]-P[k];if(Math.abs(d)>.005){P[k]+=d*.14;g=1}else P[k]=V[k]}draw();if(g&&bx.isConnected)requestAnimationFrame(loop);else run=0};
+bx.querySelectorAll('input').forEach((el,i)=>el.oninput=()=>{V[K[i]]=+el.value;O[i].textContent=el.value;if(!run){run=1;requestAnimationFrame(loop)}});requestAnimationFrame(loop)}
+
+// ---- visualizer: puntos críticos · (x−a)(x−b)(x−c) ▢ 0 (sliders for roots, button cycles the symbol) ----
+function iviz(){const bx=$('#iv');if(!bx)return;
+  const K=['a','b','c'],C=['#22d3ee','#fbbf24','#e879f9'],SY=['>','≥','<','≤'],V={a:-2,b:1,c:4};let si=2;
+  const f=n=>n==-Infinity?'−∞':n==Infinity?'+∞':String(n).replace('-','−'),tm=v=>v==0?'x':v>0?`(x − ${v})`:`(x + ${-v})`;
+  bx.innerHTML=K.map((k,i)=>`<label class="sl" style="color:${C[i]}"><b>${k}</b><input type="range" min="-4" max="6" step="1" value="${V[k]}" aria-label="raíz ${k}"><output>${V[k]}</output></label>`).join('')
+   +`<div class="row"><button class="sb glitch-btn" id="ivb"><span class="g">Símbolo: &lt; 0</span></button></div><div id="ivn"></div><div id="ivp"></div><p id="ivt" style="margin:.6rem 0 0"></p>`;
+  const upd=()=>{const g=x=>(x-V.a)*(x-V.b)*(x-V.c),r=[...new Set(K.map(k=>V[k]))].sort((x,y)=>x-y),sy=SY[si],pos=sy=='>'||sy=='≥',cl=sy.length&&si%2==1,at=[],bd=[],sg=[];
+    r.forEach((v,i)=>{const lo=i?r[i-1]:-Infinity;at.push({i:1,lo,hi:v,s:g(i?(lo+v)/2:v-1)});at.push({v})});at.push({i:1,lo:r[r.length-1],hi:Infinity,s:g(r[r.length-1]+1)});
+    let cur=null;const end=()=>{if(cur){sg.push(cur);cur=null}};
+    at.forEach(t=>{const inc=t.i?(pos?t.s>0:t.s<0):cl;
+      if(t.i)bd.push({x:[Math.max(t.lo,-6),Math.min(t.hi,8)],c:t.s>0?'#a3e635':'#e879f9',n:t.s>0?'(+)':'(−)'});
+      if(inc){if(!cur)cur={a:t.i?t.lo:t.v,ca:!t.i,b:0,cb:0};cur.b=t.i?t.hi:t.v;cur.cb=!t.i}else end()});end();
+    const M=Math.max(...Array.from({length:141},(_,i)=>Math.abs(g(-6+i/10)))),
+      txt=sg.length?sg.map(s=>s.a==s.b?`{${f(s.a)}}`:(s.ca?'[':'⟨')+f(s.a)+', '+f(s.b)+(s.cb?']':'⟩')).join(' ∪ '):'∅';
+    $('#ivn').innerHTML=numLine({min:-6,max:8,segs:sg,animate:false,name:'Solución: '+txt,label:'Solución en la recta numérica'});
+    $('#ivp').innerHTML=plot({x:[-6,8],y:[-11,11],xl:'x',yl:'forma (escala ajustada)',al:'Curva del polinomio con zonas de signo',f:[{fn:x=>10*g(x)/M,c:'#22d3ee',n:'y = '+K.map(k=>tm(V[k])).join('')}],bd,m:r.map(v=>({x:v,y:0,c:'#fbbf24',n:'PC: x = '+v,l:f(v)}))},true,false);
+    $('#ivt').innerHTML=`<b style="color:var(--ac)">Inecuación:</b> ${K.map(k=>tm(V[k])).join('')} ${sy} 0<br>Puntos críticos: ${r.map(f).join(', ')}. Signos de izquierda a derecha: ${at.filter(t=>t.i).map(t=>t.s>0?'(+)':'(−)').join(' ')}<br><b style="color:var(--ok)">Solución:</b> ${txt}`};
+  const O=bx.querySelectorAll('output');
+  bx.querySelectorAll('input').forEach((el,i)=>el.oninput=()=>{V[K[i]]=+el.value;O[i].textContent=el.value;upd()});
+  $('#ivb').onclick=()=>{si=(si+1)%4;const s=$('#ivb .g');s.textContent='Símbolo: '+SY[si].replace('<','&lt;').replace(/&lt;/,'<')+' 0';s.dataset.text=s.textContent;upd()};
+  upd()}
+
+// ---- visualizer: raíces extrañas · √(x+p) = x−q (same idea as qviz: sliders + easing) ----
+// "Elevar al cuadrado" fades in the ghost branch y = −√(x+p); roots on it are extraneous (x < q).
+function xviz(){const bx=$('#xv');if(!bx)return;
+  const K=['p','q'],C=['#22d3ee','#fbbf24'],MN={p:-2,q:-4},MX={p:10,q:10},V={p:6,q:6},P={p:6,q:6},E={v:0,t:0},
+    X=x=>(x+8)*400/24,Y=y=>(12-y)*12,f=n=>String(Math.round(n*100)/100).replace('-','−'),
+    ex=n=>n==0?'':n<0?' − '+-n:' + '+n,tm=(n,v)=>n==0?'':(n<0?' − ':' + ')+(Math.abs(n)==1&&v?'':Math.abs(n))+v,
+    roots=(p,q)=>{const D=4*(p+q)+1;if(D<-1e-9)return[];const s=Math.sqrt(Math.max(D,0)),a=(2*q+1-s)/2,b=(2*q+1+s)/2;return D<1e-9?[a]:[a,b]},
+    ok=(x,q)=>x>=q-1e-6;
+  let run=1,sq=0;
+  bx.innerHTML=`<svg class="ch" viewBox="0 0 400 240" role="img" aria-label="Curva raíz cuadrada, su rama extraña y una recta"><path d="M0 ${Y(0)}H400M${X(0)} 0V240" stroke="#334366" fill="none"/><path id="xl" stroke="#fbbf24" stroke-width="2.5" fill="none"/><path id="xg" stroke="#ff4d6d" stroke-width="2.5" stroke-dasharray="6 5" fill="none"/><path id="xu" stroke="#22d3ee" stroke-width="3" fill="none"/><g id="xm"></g></svg>
+<div class="lg"><span style="color:#22d3ee">── y = √(x + p)</span><span style="color:#fbbf24">── y = x − q</span><span style="color:#ff4d6d">╌╌ y = −√(x + p) (rama que aparece al elevar al cuadrado)</span></div>`
+  +K.map((k,i)=>`<label class="sl" style="color:${C[i]}"><b>${k}</b><input type="range" min="${MN[k]}" max="${MX[k]}" step="1" value="${V[k]}" aria-label="${k}"><output>${V[k]}</output></label>`).join('')
+  +`<div class="row"><button class="sb glitch-btn" id="xb" aria-pressed="false"><span class="g">Elevar al cuadrado</span></button></div><p id="xd" style="margin:.6rem 0 0"></p>`;
+  const draw=()=>{const p=P.p,q=P.q,a=Math.max(-8,-p);let u='',g='';
+    for(let i=0;i<=100;i++){const x=a+(16-a)*i/100,s=Math.sqrt(Math.max(0,x+p)),px=X(x).toFixed(1);u+=(i?'L':'M')+px+' '+Y(s).toFixed(1);g+=(i?'L':'M')+px+' '+Y(-s).toFixed(1)}
+    $('#xu').setAttribute('d',u);$('#xg').setAttribute('d',g);$('#xg').setAttribute('stroke-opacity',E.v.toFixed(2));
+    $('#xl').setAttribute('d',`M${X(-8)} ${Y(-8-q)}L${X(16)} ${Y(16-q)}`);
+    $('#xm').innerHTML=roots(p,q).map(x=>{const v=ok(x,q),cx=X(x),cy=Y(x-q),c=v?'#a3e635':'#ff4d6d',o=v?1:E.v;if(o<.02||cx<0||cx>400||cy<0||cy>240)return'';
+      return`<g opacity="${o.toFixed(2)}"><circle class="pl" cx="${cx}" cy="${cy}" r="6" fill="${c}"/><text x="${cx>330?cx-9:cx+9}" y="${cy-9}" font-size="11" fill="${c}" text-anchor="${cx>330?'end':'start'}">x = ${f(x)}</text></g>`}).join('')};
+  const info=()=>{const p=V.p,q=V.q,r=roots(p,q),D=4*(p+q)+1,v=r.filter(x=>ok(x,q));
+    let h=`<b style="color:var(--ac)">Ecuación:</b> √(x${ex(p)}) = x${ex(-q)}`;
+    if(!sq)h+=`<br>Soluciones reales: ${v.length?v.map(x=>'x = '+f(x)).join(' ; '):'ninguna (la recta no corta la curva)'}. Pulsa «Elevar al cuadrado» y observa qué cambia.`;
+    else{h+=`<br><b style="color:var(--mg)">Al cuadrado:</b> x²${tm(-(2*q+1),'x')}${tm(q*q-p,'')} = 0 &nbsp;(Δ = ${D})`;
+      h+=r.length?r.map(x=>`<br>x = ${f(x)}: √(x${ex(p)}) = ${f(Math.sqrt(Math.max(0,x+p)))} y x${ex(-q)} = ${f(x-q)} → `+(ok(x,q)?'<b style="color:var(--ok)">✓ válida</b>':'<b style="color:var(--bad)">✗ extraña</b>')).join(''):'<br>Δ &lt; 0: no hay candidatas, la ecuación no tiene solución.'}
+    $('#xd').innerHTML=h};
+  const loop=()=>{let g=0;for(const k of K){const d=V[k]-P[k];if(Math.abs(d)>.005){P[k]+=d*.14;g=1}else P[k]=V[k]}
+    const e=E.t-E.v;if(Math.abs(e)>.01){E.v+=e*.12;g=1}else E.v=E.t;draw();if(g&&bx.isConnected)requestAnimationFrame(loop);else run=0};
+  const kick=()=>{if(!run){run=1;requestAnimationFrame(loop)}},O=bx.querySelectorAll('output');
+  bx.querySelectorAll('input').forEach((el,i)=>el.oninput=()=>{V[K[i]]=+el.value;O[i].textContent=el.value;info();kick()});
+  const bt=$('#xb');bt.onclick=()=>{sq=sq?0:1;E.t=sq;const s=bt.querySelector('.g');s.textContent=sq?'Volver a la ecuación original':'Elevar al cuadrado';s.dataset.text=s.textContent;bt.setAttribute('aria-pressed',!!sq);info();kick()};
+  info();requestAnimationFrame(loop)}
+
+// ---- charts: one generic SVG plotter (curves, areas, bands, markers with tooltip) ----
+let _pid=0;
+function plot(c,sv,an){
+  const W=480,H=270,L=46,R=14,Tp=14,B=34,[x0,x1]=c.x,[y0,y1]=c.y,X=x=>L+(x-x0)/(x1-x0)*(W-L-R),Y=y=>H-B-(y-y0)/(y1-y0)*(H-Tp-B),id='cp'+(++_pid),
+    fm=v=>{const a=Math.abs(v);return(a>=1000&&a%100==0?v/1000+'k':String(+v.toFixed(2))).replace('-','−')},
+    nice=(a,b,n)=>{const r=(b-a)/n,p=10**Math.floor(Math.log10(r)),m=r/p,s=(m<1.5?1:m<3?2:m<7?5:10)*p,o=[];for(let v=Math.ceil(a/s-1e-9)*s;v<=b+1e-9;v+=s)o.push(+v.toFixed(6));return o},
+    P=fn=>{let d='',pen=0;for(let i=0;i<=140;i++){const x=x0+(x1-x0)*i/140,y=fn(x);if(!isFinite(y)||Math.abs(y)>1e6){pen=0;continue}d+=(pen?'L':'M')+X(x).toFixed(1)+' '+Y(y).toFixed(1);pen=1}return d},
+    vis=!c.hide||sv,show=o=>!o.s||sv;
+  let g=`<svg class="ch" viewBox="0 0 ${W} ${H}" role="img" aria-label="${c.al||'Gráfico del caso'}"><defs><clipPath id="${id}"><rect x="${L}" y="${Tp}" width="${W-L-R}" height="${H-Tp-B}"/></clipPath></defs>`;
+  nice(x0,x1,6).forEach(v=>g+=`<path d="M${X(v)} ${Tp}V${H-B}" stroke="#1e2a47"/><text x="${X(v)}" y="${H-B+15}" font-size="11" fill="#5b667a" text-anchor="middle">${fm(v)}</text>`);
+  nice(y0,y1,4).forEach(v=>g+=`<path d="M${L} ${Y(v)}H${W-R}" stroke="#1e2a47"/><text x="${L-6}" y="${Y(v)+4}" font-size="11" fill="#5b667a" text-anchor="end">${fm(v)}</text>`);
+  if(y0<0&&y1>0)g+=`<path d="M${L} ${Y(0)}H${W-R}" stroke="#94a3b8"/>`;if(x0<0&&x1>0)g+=`<path d="M${X(0)} ${Tp}V${H-B}" stroke="#94a3b8"/>`;
+  g+=`<path d="M${L} ${Tp}V${H-B}H${W-R}" stroke="#94a3b8" fill="none"/>`;
+  if(c.xl)g+=`<text x="${W-R}" y="${H-4}" font-size="11" fill="#8393b8" text-anchor="end">${c.xl}</text>`;
+  if(c.yl)g+=`<text x="${L+4}" y="${Tp+11}" font-size="11" fill="#8393b8">${c.yl}</text>`;
+  if(!vis)g+=`<text x="${(L+W-R)/2}" y="${H/2}" font-size="13" fill="#5b667a" text-anchor="middle">El gráfico se traza al resolver el caso</text>`;
+  else{
+    (c.bd||[]).forEach(b=>{if(show(b))g+=`<g class="nd"><rect x="${X(b.x[0])}" y="${Tp}" width="${X(b.x[1])-X(b.x[0])}" height="${H-Tp-B}" fill="${b.c}" opacity=".18"/>${b.n?`<text x="${(X(b.x[0])+X(b.x[1]))/2}" y="${Tp+14}" font-size="11" fill="${b.c}" text-anchor="middle">${b.n}</text>`:''}</g>`});
+    (c.ar||[]).forEach(a=>{if(!show(a))return;let u='',l='';for(let i=0;i<=60;i++){const x=a.x[0]+(a.x[1]-a.x[0])*i/60;u+=(i?'L':'M')+X(x).toFixed(1)+' '+Y(a.a(x)).toFixed(1);l=`L${X(x).toFixed(1)} ${Y(a.b(x)).toFixed(1)}`+l}
+      g+=`<path class="nd" clip-path="url(#${id})" d="${u}${l}Z" fill="${a.c}" opacity=".25"/>`});
+    (c.f||[]).forEach(f=>g+=`<path clip-path="url(#${id})" d="${P(f.fn)}" ${f.d?'stroke-dasharray="6 5"':`pathLength="1" class="${an?'dr':''}"`} stroke="${f.c}" stroke-width="2.5" fill="none"/>`);
+    (c.vl||[]).forEach(v=>{if(show(v))g+=`<g class="nd"><path d="M${X(v.x)} ${Tp}V${H-B}" stroke="${v.c}" stroke-width="2" stroke-dasharray="${v.d?'6 5':'0'}"/>${v.n?`<text x="${X(v.x)+5}" y="${Tp+26}" font-size="11" fill="${v.c}">${v.n}</text>`:''}</g>`});
+    (c.m||[]).forEach(m=>{if(!show(m))return;const e=X(m.x)>W-100?'end':'start',o=e=='end'?-9:9;
+      g+=`<g class="nd" tabindex="0" aria-label="${m.n}"><circle class="pl" cx="${X(m.x)}" cy="${Y(m.y)}" r="5.5" fill="${m.c}" style="filter:drop-shadow(0 0 6px ${m.c})"/><circle cx="${X(m.x)}" cy="${Y(m.y)}" r="15" fill="transparent"><title>${m.n}</title></circle>${m.l?`<text x="${X(m.x)+o}" y="${Y(m.y)-9}" font-size="11" fill="${m.c}" text-anchor="${e}">${m.l}</text>`:''}</g>`})}
+  g+='</svg>';
+  const lg=[...(c.f||[]).map(f=>`<span style="color:${f.c}">${f.d?'╌╌':'──'} ${f.n}</span>`),...(c.bd||[]).filter(b=>b.n&&show(b)).map(b=>`<span style="color:${b.c}">■ ${b.n}</span>`),...(c.ar||[]).filter(a=>a.n&&show(a)).map(a=>`<span style="color:${a.c}">■ ${a.n}</span>`)];
+  return g+(vis&&lg.length?`<div class="lg">${[...new Set(lg)].join('')}</div>`:'');
+}
+const mountPl=r=>r.querySelectorAll('[data-pl]').forEach(e=>{const c=FIG[e.dataset.pl];if(c)e.innerHTML=plot(c,true,true)});
+const G_='#a3e635',R_='#ff4d6d',C_='#22d3ee',A_='#fbbf24',M_='#e879f9';
+const ASY=(fn,...a)=>x=>a.some(t=>Math.abs(x-t)<.03)?NaN:fn(x);   // breaks the curve at vertical asymptotes
+const FIG={
+  lin:{x:[-1,5],y:[-6,6],al:'Recta y = 2x − 4 con su raíz en x = 2',f:[{fn:x=>2*x-4,c:C_,n:'y = 2x − 4'}],m:[{x:2,y:0,c:G_,n:'Raíz: x = 2',l:'x = 2'}]},
+  eq:{x:[0,6],y:[0,14],al:'Rectas de ingresos y costos que se cortan en el punto de equilibrio',f:[{fn:x=>3*x,c:G_,n:'Ingresos I(x) = 3x'},{fn:x=>x+4,c:R_,n:'Costos C(x) = x + 4'}],ar:[{a:x=>3*x,b:x=>x+4,x:[2,6],c:G_,n:'Ganancia'}],m:[{x:2,y:6,c:A_,n:'Punto de equilibrio',l:'(2; 6)'}]},
+  disc:{x:[-4,4],y:[-5,8],al:'Tres parábolas según el signo del discriminante',f:[{fn:x=>x*x-4,c:C_,n:'Δ > 0: corta 2 veces'},{fn:x=>x*x,c:A_,n:'Δ = 0: toca 1 vez'},{fn:x=>x*x+2,c:R_,n:'Δ < 0: no corta'}],m:[{x:-2,y:0,c:C_,n:'Raíz x = −2'},{x:2,y:0,c:C_,n:'Raíz x = 2'},{x:0,y:0,c:A_,n:'Raíz doble x = 0'}]},
+  rad:{x:[-2,12],y:[0,5],al:'Raíz cuadrada y = √x cortando la horizontal y = 3',f:[{fn:x=>Math.sqrt(x),c:C_,n:'y = √x'},{fn:()=>3,c:A_,n:'y = 3',d:1}],m:[{x:0,y:0,c:A_,n:'La raíz nace en x = 0',l:'(0; 0)'},{x:9,y:3,c:G_,n:'√x = 3 ⇒ x = 9',l:'x = 9'}]},
+  dom:{x:[-2,8],y:[-4,4],al:'Hipérbola con asíntota vertical en x = 2',f:[{fn:ASY(x=>1/(x-2),2),c:C_,n:'y = 1/(x − 2)'},{fn:()=>1,c:A_,n:'y = 1',d:1}],vl:[{x:2,c:R_,n:'x = 2 (prohibido)',d:1}],m:[{x:3,y:1,c:G_,n:'1/(x − 2) = 1 ⇒ x = 3',l:'x = 3'}]},
+  ext:{x:[-3,5],y:[-4,4],al:'Rama principal, rama extraña y la recta y = x',f:[{fn:x=>Math.sqrt(x+2),c:C_,n:'y = √(x + 2)'},{fn:x=>-Math.sqrt(x+2),c:R_,n:'y = −√(x + 2) (rama extraña)',d:1},{fn:x=>x,c:A_,n:'Recta y = x'}],m:[{x:2,y:2,c:G_,n:'Válida: x = 2',l:'x = 2'},{x:-1,y:-1,c:R_,n:'Extraña: x = −1 (corta la rama inferior)',l:'x = −1'}]},
+  neg:{x:[-6,2],y:[-8,8],al:'Recta y = −2x − 4: es positiva cuando x es menor que −2',f:[{fn:x=>-2*x-4,c:C_,n:'y = −2x − 4'}],ar:[{a:()=>0,b:x=>-2*x-4,x:[-6,-2],c:G_,n:'−2x − 4 > 0 ⇒ x < −2'}],m:[{x:-2,y:0,c:A_,n:'Cero en x = −2 (abierto)',l:'x = −2'}]},
+  quad:{x:[-1,5],y:[-2,6],al:'Parábola x² − 4x + 3 por debajo del eje entre 1 y 3',f:[{fn:x=>x*x-4*x+3,c:C_,n:'y = x² − 4x + 3'}],ar:[{a:()=>0,b:x=>x*x-4*x+3,x:[1,3],c:G_,n:'x² − 4x + 3 < 0'}],m:[{x:1,y:0,c:A_,n:'Raíz x = 1',l:'1'},{x:3,y:0,c:A_,n:'Raíz x = 3',l:'3'}]},
+  rac:{x:[-6,6],y:[-6,6],al:'Hipérbola (x − 1)/(x + 1) con asíntota en x = −1',f:[{fn:ASY(x=>(x-1)/(x+1),-1),c:C_,n:'y = (x − 1)/(x + 1)'}],ar:[{a:()=>0,b:x=>Math.min(7,(x-1)/(x+1)),x:[-6,-1.001],c:G_,n:'(x − 1)/(x + 1) ≥ 0'},{a:()=>0,b:x=>(x-1)/(x+1),x:[1,6],c:G_}],vl:[{x:-1,c:R_,n:'x = −1 (abierto)',d:1}],m:[{x:1,y:0,c:A_,n:'x = 1 (cerrado)',l:'x = 1'}]},
+  cub:{x:[-3,4.5],y:[-8,12],al:'Cúbica con signos alternados (−, +, −, +)',f:[{fn:x=>(x+2)*(x-1)*(x-3),c:C_,n:'y = (x + 2)(x − 1)(x − 3)'}],bd:[{x:[-3,-2],c:M_,n:'(−)'},{x:[-2,1],c:G_,n:'(+)'},{x:[1,3],c:M_,n:'(−)'},{x:[3,4.5],c:G_,n:'(+)'}],m:[{x:-2,y:0,c:A_,n:'Raíz x = −2',l:'−2'},{x:1,y:0,c:A_,n:'Raíz x = 1',l:'1'},{x:3,y:0,c:A_,n:'Raíz x = 3',l:'3'}]},
+  abs:{x:[-2,8],y:[-1,6],al:'V de y = |x − 3| cortada por y = 2',f:[{fn:x=>Math.abs(x-3),c:C_,n:'y = |x − 3|'},{fn:()=>2,c:A_,n:'y = 2',d:1}],m:[{x:3,y:0,c:M_,n:'Vértice: x = 3',l:'(3; 0)'},{x:1,y:2,c:G_,n:'x = 1',l:'x = 1'},{x:5,y:2,c:G_,n:'x = 5',l:'x = 5'}]},
+  vac:{x:[-5,5],y:[-4,6],al:'La V de y = |x| nunca toca la recta y = −2',f:[{fn:x=>Math.abs(x),c:C_,n:'y = |x|'},{fn:()=>-2,c:R_,n:'y = −2',d:1}],ar:[{a:()=>-2,b:()=>0,x:[-5,5],c:R_,n:'Zona inalcanzable (y < 0)'}]},
+  tol:{x:[-1,7],y:[-1,5],al:'|x − 3| ≤ 2: la V bajo la recta y = 2 forma un intervalo continuo',f:[{fn:x=>Math.abs(x-3),c:C_,n:'y = |x − 3|'},{fn:()=>2,c:A_,n:'y = 2',d:1}],bd:[{x:[1,5],c:G_,n:'Cerca del centro'}],m:[{x:3,y:0,c:A_,n:'Centro: x = 3',l:'3'},{x:1,y:2,c:G_,n:'x = 1',l:'1'},{x:5,y:2,c:G_,n:'x = 5',l:'5'}]},
+  div:{x:[-1,7],y:[-1,5],al:'|x − 3| > 2: la V sobre la recta y = 2 forma dos tramos separados',f:[{fn:x=>Math.abs(x-3),c:C_,n:'y = |x − 3|'},{fn:()=>2,c:A_,n:'y = 2',d:1}],bd:[{x:[-1,1],c:R_,n:'Se aleja'},{x:[5,7],c:R_,n:'Se aleja'}],m:[{x:3,y:0,c:A_,n:'Centro: x = 3',l:'3'},{x:1,y:2,c:R_,n:'x = 1 (abierto)',l:'1'},{x:5,y:2,c:R_,n:'x = 5 (abierto)',l:'5'}]}};
+const T=[
+{n:'Ecuaciones lineales y cuadráticas',comp:`
+<h4>Ecuaciones lineales (de primer grado)</h4>
+<p><b>Definición:</b> tienen la forma general $ax + b = 0$, donde $a \\neq 0$. Gráficamente representan una línea recta.</p>
+<p><b>Resolución:</b> se basan en las propiedades de la igualdad. Al trasponer términos, la operación se invierte (lo que suma, resta; lo que multiplica, divide): $ax + b = c \\Rightarrow ax = c - b \\Rightarrow x = \\frac{c - b}{a}$.</p>
+<div data-pl="lin"></div>
+<h4>Ecuaciones cuadráticas (de segundo grado)</h4>
+<p><b>Definición:</b> tienen la forma $ax^2 + bx + c = 0$, donde $a \\neq 0$. Su gráfica es una parábola; las «raíces» o soluciones son los puntos donde la curva cruza el eje $x$.</p>
+<p><b>Métodos de resolución:</b></p>
+<ol><li><b>Factorización:</b> se expresa como producto de binomios. Si $m \\cdot n = 0$, entonces $m = 0$ o $n = 0$.</li>
+<li><b>Fórmula general:</b> $x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$</li></ol>
+<p><b>Análisis del discriminante</b> $\\Delta = b^2 - 4ac$:</p>
+<ul><li>Si $\\Delta > 0$: dos soluciones reales y distintas (la parábola corta el eje $x$ dos veces).</li>
+<li>Si $\\Delta = 0$: una solución real repetida (la parábola toca el eje $x$ en su vértice).</li>
+<li>Si $\\Delta < 0$: no hay soluciones en los números reales (la parábola no corta el eje $x$).</li></ul>
+<div data-pl="disc"></div>
+<h4>Explora la parábola</h4>
+<p>Mueve los controles deslizantes $a$, $b$ y $c$ y observa cómo cambian las raíces, el vértice y el discriminante en tiempo real.</p>
+<div id="qv"></div>`,
+c:[
+{t:'Administración y Finanzas',lvl:'Aplicación',
+ ctx:`El cálculo de costos fijos y variables mediante ecuaciones lineales permite a los administradores controlar presupuestos. Una sucursal tiene un costo fijo mensual de S/ 1200, más un costo variable de S/ 0.80 por unidad procesada. El presupuesto asignado es de S/ 3600.`,
+ ch:{x:[0,4000],y:[0,4500],xl:'unidades x',yl:'S/',al:'Costo lineal frente al presupuesto',f:[{fn:x=>1200+.8*x,c:C_,n:'Costo C(x) = 1200 + 0.8x'},{fn:()=>3600,c:R_,n:'Presupuesto S/ 3600',d:1}],m:[{x:3000,y:3600,c:G_,n:'Unidades máximas: 3000',l:'(3000; 3600)',s:1}]},
+ th:`Una ecuación lineal $ax + b = c$ se resuelve aislando $x$: se resta $b$ en ambos miembros y luego se divide entre $a$, es decir, $x = \\frac{c - b}{a}$. En la gráfica, la solución es la abscisa del punto donde la recta corta a la horizontal $y = c$ (en la figura, con $c = 0$, la recta $y = 2x - 4$ corta en $x = 2$).`,thf:'lin',
+ sol:[`Plantea el costo total igual al presupuesto: $1200 + 0.80x = 3600$`,`Resta el costo fijo: $0.80x = 2400$`,`Divide entre 0.80: $x = 3000$ unidades`],
+ st:[{k:'in',q:`¿Cuántas unidades como máximo puede procesar la sucursal con el presupuesto asignado?`,a:[3000],u:'unidades',h:'Pista: plantea $1200 + 0.80x = 3600$.',why:'Correcto: con 3000 unidades el costo iguala el presupuesto de S/ 3600.'}]},
+{t:'Contabilidad y Finanzas',lvl:'Auditoría de errores',
+ ctx:`Para calcular el punto de equilibrio se comparan los ingresos $I(x) = 150x$ con los costos $C(x) = 50x + 2000$. Un analista realizó el cálculo, pero cometió un error de transposición.`,
+ ch:{x:[0,40],y:[0,6000],hide:1,xl:'unidades x',yl:'S/',al:'Ingresos frente a costos',f:[{fn:x=>150*x,c:G_,n:'Ingresos I(x) = 150x'},{fn:x=>50*x+2000,c:R_,n:'Costos C(x) = 50x + 2000'}],ar:[{a:x=>150*x,b:x=>50*x+2000,x:[20,40],c:G_,n:'Ganancia (x > 20)'}],m:[{x:20,y:3000,c:A_,n:'Punto de equilibrio: x = 20',l:'(20; 3000)'}]},
+ th:`El punto de equilibrio ocurre cuando ingresos y costos son iguales: $I(x) = C(x)$. Al trasponer un término de un miembro al otro se aplica la operación inversa: si suma, pasa restando. Sumar en lugar de restar es el error de transposición más común. Después del punto de equilibrio, la recta de ingresos queda por encima de la de costos y hay ganancia.`,thf:'eq',
+ sol:[`Iguala ingresos y costos: $150x = 50x + 2000$`,`Traspón $50x$ restando: $150x - 50x = 2000$`,`Reduce: $100x = 2000$`,`Divide entre 100: $x = 20$`],
+ st:[{k:'pick',q:`El analista resolvió el punto de equilibrio con estos pasos. ¿Qué línea contiene el error de transposición?`,s:['$150x = 50x + 2000$','$150x + 50x = 2000$','$200x = 2000$','$x = 10$'],ok:1,why:'Correcto: al trasponer $50x$ debía restarse, no sumarse: $150x - 50x = 2000$.'},
+     {k:'in',q:`Resuelve correctamente: ¿en qué cantidad $x$ se alcanza el punto de equilibrio?`,a:[20],u:'unidades',h:'Pista: iguala ingresos y costos, $150x = 50x + 2000$.',why:'Correcto: desde $x > 20$ los ingresos superan a los costos (ganancia).'}]},
+{t:'Ingeniería Empresarial',lvl:'Decisión',
+ ctx:`El margen operativo de un proceso está modelado por la ecuación $-2x^2 + 100x = 800$.`,rule:`Regla técnica: <b>el parámetro $x$ debe ser obligatoriamente mayor a 25.</b>`,
+ ch:{x:[0,50],y:[0,1400],xl:'parámetro x',yl:'margen',al:'Parábola de margen frente a la meta de 800',f:[{fn:x=>-2*x*x+100*x,c:C_,n:'Margen y = −2x² + 100x'},{fn:()=>800,c:A_,n:'Meta y = 800',d:1}],bd:[{x:[0,25],c:R_,n:'Zona restringida (x ≤ 25)'}],m:[{x:10,y:800,c:R_,n:'x = 10 incumple la regla',l:'x = 10',s:1},{x:40,y:800,c:G_,n:'x = 40 cumple la regla',l:'x = 40',s:1}]},
+ th:`En $ax^2 + bx + c = 0$ el discriminante $\\Delta = b^2 - 4ac$ indica cuántas raíces reales hay: dos si $\\Delta > 0$, una si $\\Delta = 0$ y ninguna si $\\Delta < 0$. Además, una raíz matemática solo es solución del problema si cumple la regla técnica del contexto.`,thf:'disc',
+ sol:[`Ordena e iguala a cero: $-2x^2 + 100x = 800 \\Rightarrow x^2 - 50x + 400 = 0$`,`Discriminante: $\\Delta = 2500 - 1600 = 900$ (raíces reales)`,`Raíces: $x = 10$ ó $x = 40$`,`Regla $x > 25$: solo cumple $x = 40$`],
+ st:[{k:'in',q:`Resuelve la ecuación $-2x^2 + 100x = 800$. Escribe las dos soluciones separadas por coma.`,a:[10,40],h:'Pista: divide entre $-2$ y llega a $x^2 - 50x + 400 = 0$.',why:'Correcto: las raíces son $x = 10$ y $x = 40$.'},
+     {k:'ch',q:`Aplicando la regla técnica $x > 25$, ¿qué valor del parámetro debe usarse?`,o:[['$x = 10$','Es solución de la ecuación, pero incumple la regla $x > 25$.'],['$x = 40$',''],['$x = 25$','No es solución: es el vértice de la parábola, donde el margen vale 1250, no 800.']],ok:1,why:'Correcto: de las dos raíces solo $x = 40$ cumple $x > 25$.'}]}
+]},
+{n:'Ecuaciones fraccionarias e irracionales',comp:`
+<h4>Ecuaciones fraccionarias (racionales)</h4>
+<p><b>Definición:</b> la incógnita $x$ aparece en el denominador de al menos una fracción, por ejemplo $\\frac{1}{x} + \\frac{1}{x+3} = \\frac{1}{2}$. Sus gráficas son hipérbolas: curvas con «saltos» en los valores donde la función no existe.</p>
+<p><b>Restricciones del dominio (¡crítico!):</b> antes de resolver, identifica qué valores anulan cualquier denominador. La división por cero no está definida, así que esos valores <b>jamás</b> pueden ser solución. En $\\frac{1}{x-2}$ debe cumplirse $x \\neq 2$; en la gráfica, esa restricción es una <b>asíntota vertical</b> que la curva nunca toca.</p>
+<div data-pl="dom"></div>
+<p><b>Resolución:</b></p>
+<ol><li>Factoriza los denominadores y escribe las restricciones ($x \\neq \\dots$).</li>
+<li>Halla el Mínimo Común Múltiplo (MCM) de todos los denominadores.</li>
+<li>Multiplica ambos miembros por el MCM: las fracciones desaparecen y queda una ecuación polinómica (lineal o cuadrática).</li>
+<li>Resuelve la ecuación polinómica.</li>
+<li>Corrobora que ninguna solución coincida con las restricciones; si coincide, se descarta.</li></ol>
+<p class="rule"><b>Error frecuente:</b> las fracciones no se suman sumando numeradores y denominadores. $\\frac{1}{a} + \\frac{1}{b} \\neq \\frac{2}{a+b}$; lo correcto es $\\frac{1}{a} + \\frac{1}{b} = \\frac{a+b}{ab}$.</p>
+<h4>Ecuaciones irracionales</h4>
+<p><b>Definición:</b> la variable $x$ se encuentra bajo el signo de un radical, como $\\sqrt{x}$ o $\\sqrt{2x+14}$. Una raíz cuadrada solo existe si su radicando es no negativo: $\\sqrt{A}$ está definida únicamente cuando $A \\geq 0$ (la curva «nace» donde el radicando vale cero).</p>
+<p><b>Resolución:</b></p>
+<ol><li>Aísla el radical en un miembro de la ecuación.</li>
+<li>Eleva ambos miembros a la potencia del índice de la raíz (al cuadrado si es raíz cuadrada). Si el otro miembro es un binomio, recuerda que $(a - b)^2 = a^2 - 2ab + b^2$.</li>
+<li>Resuelve la ecuación que resulta.</li>
+<li><b>Verifica</b> cada candidata reemplazándola en la ecuación original.</li></ol>
+<div data-pl="rad"></div>
+<h4>Teorema de las soluciones extrañas</h4>
+<p>Elevar al cuadrado no es una operación estrictamente reversible si los signos no están controlados: $a = b \\Rightarrow a^2 = b^2$, pero $a^2 = b^2 \\Rightarrow a = b \\lor a = -b$. Por eso este proceso puede crear «soluciones parásitas o extrañas».</p>
+<p>Gráficamente: la ecuación $\\sqrt{A} = B$ solo describe la rama superior de la curva. Al elevar al cuadrado, $A = B^2$ describe también la rama inferior, $-\\sqrt{A} = B$. Una solución extraña es un punto donde la recta corta a esa rama «fantasma». Una candidata es válida solo si $B \\geq 0$.</p>
+<div data-pl="ext"></div>
+<p class="rule"><b>Regla de oro:</b> toda posible solución de una ecuación irracional debe verificarse reemplazándola en la ecuación original.</p>
+<h4>Lista de control</h4>
+<ul><li>¿Escribí las restricciones del dominio (denominadores distintos de cero, radicandos no negativos)?</li>
+<li>¿Aislé el radical antes de elevar al cuadrado?</li>
+<li>¿Verifiqué cada candidata en la ecuación original?</li>
+<li>¿La solución cumple las condiciones del contexto (tiempo, longitud o concentración no negativos)?</li></ul>
+<h4>Explora: raíces extrañas</h4>
+<p>En la ecuación $\\sqrt{x+p} = x - q$, mueve los controles $p$ y $q$. Luego pulsa «Elevar al cuadrado» y observa qué rama aparece y qué soluciones resultan válidas o extrañas.</p>
+<div id="xv"></div>`,
+c:[
+{t:'Arquitectura y Urbanismo',lvl:'Aplicación',
+ ctx:`En topografía, las distancias en diagonal se modelan con ecuaciones irracionales. En el diseño de un terreno, la diagonal topográfica de 6 m queda descrita por la ecuación $\\sqrt{2x + 14} = 6$, donde $x$ es un parámetro de diseño medido en metros.`,
+ ch:{x:[-12,14],y:[0,8],xl:'x (m)',al:'Curva radical frente a la recta horizontal y = 6',f:[{fn:x=>Math.sqrt(2*x+14),c:C_,n:'y = √(2x + 14)'},{fn:()=>6,c:A_,n:'Diagonal y = 6',d:1}],bd:[{x:[-12,-7],c:R_,n:'Sin dominio'}],m:[{x:-7,y:0,c:A_,n:'La curva nace en x = −7',l:'(−7; 0)'},{x:11,y:6,c:G_,n:'Solución: x = 11',l:'(11; 6)',s:1}]},
+ th:`En una ecuación irracional se aísla el radical y se elevan ambos miembros al cuadrado: $\\sqrt{A} = k \\Rightarrow A = k^2$. La raíz solo existe si el radicando es no negativo, por eso la curva $y = \\sqrt{x}$ nace en $x = 0$ y crece lentamente. La solución es la abscisa del punto donde la curva corta a la horizontal (en la figura, $\\sqrt{x} = 3$ da $x = 9$). Siempre verifica el resultado en la ecuación original.`,thf:'rad',
+ sol:[`El radical ya está aislado: $\\sqrt{2x + 14} = 6$`,`Eleva al cuadrado ambos miembros: $2x + 14 = 36$`,`Despeja: $2x = 22 \\Rightarrow x = 11$`,`Verifica en la original: $\\sqrt{2(11) + 14} = \\sqrt{36} = 6$ ✓`],
+ st:[{k:'in',q:`Resuelve la ecuación $\\sqrt{2x + 14} = 6$. ¿Cuánto vale $x$?`,a:[11],u:'m',h:'Pista: eleva al cuadrado ambos miembros y llega a $2x + 14 = 36$.',why:'Correcto: con $x = 11$ se tiene $\\sqrt{36} = 6$, así que cumple la ecuación original.'}]},
+{t:'Ingeniería de Sistemas e Informática',lvl:'Auditoría de errores',
+ ctx:`Dos servidores procesan un mismo lote de datos. El servidor A lo procesa solo en $x$ horas y el servidor B tarda 3 horas más que A. Trabajando juntos terminan en 2 horas, lo que da el modelo $\\frac{1}{x} + \\frac{1}{x+3} = \\frac{1}{2}$. Un ingeniero junior resolvió la ecuación, pero cometió un error.`,
+ ch:{x:[-6,6],y:[-4,6],hide:1,xl:'x (horas)',yl:'tasa (lote/h)',al:'Hipérbolas con asíntotas verticales en x = 0 y x = −3 frente a la constante 1/2',f:[{fn:ASY(x=>1/x+1/(x+3),0,-3),c:C_,n:'f(x) = 1/x + 1/(x + 3)'},{fn:()=>.5,c:A_,n:'y = 1/2',d:1}],vl:[{x:0,c:R_,n:'x = 0',d:1},{x:-3,c:R_,n:'x = −3',d:1}],m:[{x:3,y:.5,c:G_,n:'x = 3: solución válida',l:'x = 3'},{x:-2,y:.5,c:M_,n:'x = −2: tiempo negativo, se descarta',l:'x = −2'}]},
+ th:`En una ecuación fraccionaria, primero se escriben las restricciones: los valores que anulan un denominador no pueden ser solución. Luego se multiplica por el MCM para eliminar denominadores. Las fracciones no se suman sumando numeradores y denominadores: $\\frac{a}{b} + \\frac{c}{d} = \\frac{ad + bc}{bd}$. En la gráfica, cada restricción es una asíntota vertical: la curva se acerca, pero nunca la toca (en la figura, $x \\neq 2$).`,thf:'dom',
+ sol:[`Restricciones: $x \\neq 0$ y $x + 3 \\neq 0 \\Rightarrow x \\neq -3$`,`El MCM es $2x(x+3)$. Multiplica toda la ecuación: $2(x+3) + 2x = x(x+3)$`,`Reduce: $4x + 6 = x^2 + 3x \\Rightarrow x^2 - x - 6 = 0$`,`Factoriza: $(x - 3)(x + 2) = 0 \\Rightarrow x = 3$ ó $x = -2$`,`Ambos valores respetan las restricciones, pero un tiempo negativo no tiene sentido: se descarta $x = -2$ y queda $x = 3$ h (comprobación: $\\frac{1}{3} + \\frac{1}{6} = \\frac{1}{2}$ ✓)`],
+ st:[{k:'pick',q:`El ingeniero resolvió la ecuación con estos pasos. ¿Qué línea contiene el error?`,s:['$\\frac{1}{x} + \\frac{1}{x+3} = \\frac{1}{2}$','$\\frac{1+1}{x+(x+3)} = \\frac{1}{2}$','$\\frac{2}{2x+3} = \\frac{1}{2}$','$x = \\frac{1}{2}$'],ok:1,why:'Correcto: las fracciones no se suman sumando numeradores y denominadores. Debe usarse el MCM: $\\frac{1}{x} + \\frac{1}{x+3} = \\frac{2x+3}{x(x+3)}$.'},
+     {k:'in',q:`Resuelve correctamente, considerando las restricciones y que el tiempo no puede ser negativo: ¿en cuántas horas procesaría el lote el servidor A trabajando solo?`,a:[3],u:'horas',h:'Pista: restricciones $x \\neq 0$ y $x \\neq -3$; multiplica por $2x(x+3)$ y llega a $x^2 - x - 6 = 0$.',why:'Correcto: las raíces son $x = 3$ y $x = -2$, pero el tiempo no puede ser negativo. El servidor A tarda 3 h y el B, 6 h.'}]},
+{t:'Medicina Humana',lvl:'Decisión',
+ ctx:`En un modelo biocinético, la concentración $x$ (en mg/dL) de un compuesto en sangre se describe con la ecuación $\\sqrt{x + 6} = x - 6$.`,rule:`Protocolo de verificación: <b>todo valor reportado debe cumplir la ecuación original</b>, no solo la ecuación que resulta de elevar al cuadrado.`,
+ ch:{x:[-6,14],y:[-6,8],hide:1,xl:'concentración x (mg/dL)',yl:'y',al:'La recta y = x − 6 corta la rama superior en x = 10 y la rama extraña en x = 3',f:[{fn:x=>Math.sqrt(x+6),c:C_,n:'y = √(x + 6)'},{fn:x=>-Math.sqrt(x+6),c:R_,n:'y = −√(x + 6) (rama extraña)',d:1},{fn:x=>x-6,c:A_,n:'Recta y = x − 6'}],m:[{x:10,y:4,c:G_,n:'x = 10: cumple la ecuación original',l:'(10; 4)'},{x:3,y:-3,c:R_,n:'x = 3: corta la rama extraña, no la ecuación original',l:'(3; −3)'}]},
+ th:`Al elevar al cuadrado, $\\sqrt{A} = B$ se convierte en $A = B^2$, que también incluye a $-\\sqrt{A} = B$. Por eso en la gráfica aparece una rama inferior (punteada) y pueden surgir soluciones extrañas: son los puntos donde la recta corta esa rama. Una candidata es válida solo si $B \\geq 0$ y se verifica en la ecuación original (en la figura, $x = 2$ es válida y $x = -1$ es extraña).`,thf:'ext',
+ sol:[`Eleva al cuadrado ambos miembros: $x + 6 = (x - 6)^2 = x^2 - 12x + 36$`,`Ordena: $x^2 - 13x + 30 = 0$`,`Factoriza: $(x - 10)(x - 3) = 0 \\Rightarrow x = 10$ ó $x = 3$`,`Verifica $x = 10$: $\\sqrt{16} = 4$ y $10 - 6 = 4$ ✓`,`Verifica $x = 3$: $\\sqrt{9} = 3$ pero $3 - 6 = -3$ ✗ (solución extraña)`,`Conclusión: la concentración válida es $x = 10$ mg/dL`],
+ st:[{k:'in',q:`Eleva al cuadrado la ecuación $\\sqrt{x + 6} = x - 6$ y resuélvela. Escribe los dos valores candidatos separados por coma.`,a:[3,10],h:'Pista: $x + 6 = x^2 - 12x + 36$ lleva a $x^2 - 13x + 30 = 0$.',why:'Correcto: $(x - 10)(x - 3) = 0$ da los candidatos $x = 3$ y $x = 10$.'},
+     {k:'ch',q:`Aplicando el protocolo de verificación, ¿qué concentración debe reportar el equipo?`,o:[['$x = 3$ mg/dL','No cumple: $\\sqrt{3 + 6} = 3$, pero $3 - 6 = -3$. Es una solución extraña generada al elevar al cuadrado.'],['$x = 10$ mg/dL',''],['$x = 13$ mg/dL','No es solución: es la suma de las raíces de la cuadrática, no un valor que verifique la ecuación original.']],ok:1,why:'Correcto: $x = 10$ cumple, pues $\\sqrt{16} = 4 = 10 - 6$. El candidato $x = 3$ no, porque $\\sqrt{9} = 3 \\neq -3$.'}]}
+]},
+{n:'Inecuaciones (lineales, cuadráticas, grado superior y racionales)',comp:`
+<h4>Propiedades esenciales de las desigualdades</h4>
+<ul><li>Si sumas o restas un mismo valor en ambos miembros, el sentido de la desigualdad <b>no cambia</b>.</li>
+<li>Si multiplicas o divides por un número <b>positivo</b>, el sentido tampoco cambia.</li>
+<li>Si multiplicas o divides por un número <b>negativo</b>, el sentido <b>se invierte</b>: $-2x > 4 \\Rightarrow x < -2$.</li></ul>
+<p class="rule"><b>Regla crítica:</b> nunca multipliques ni dividas por una expresión con $x$ (como $x - 2$) sin conocer su signo: puede ser positiva o negativa según el valor de $x$.</p>
+<div data-pl="neg"></div>
+<h4>Notación de intervalos</h4>
+<ul><li>$\\langle a, b \\rangle$: extremos <b>abiertos</b> (no incluidos), para $<$ y $>$.</li>
+<li>$[a, b]$: extremos <b>cerrados</b> (incluidos), para $\\le$ y $\\ge$.</li>
+<li>$\\infty$ siempre lleva extremo abierto. La unión $\\cup$ junta varios tramos.</li></ul>
+<h4>Inecuaciones lineales y cuadráticas</h4>
+<p>Una lineal se resuelve como una ecuación, cuidando la regla del signo negativo. En una cuadrática $ax^2 + bx + c < 0$ se factoriza y se buscan los tramos donde la parábola queda <b>debajo</b> del eje $x$ ($<0$) o <b>encima</b> ($>0$).</p>
+<div data-pl="quad"></div>
+<h4>Método de los puntos críticos (regla de los signos)</h4>
+<p>Se usa en inecuaciones de grado $\\ge 2$ y racionales:</p>
+<ol><li><b>Igualar a cero:</b> pasa todos los términos a un lado para que quede $>0$, $<0$, $\\ge 0$ o $\\le 0$.</li>
+<li><b>Factorizar:</b> descompón en factores lineales, como $(x-a)(x-b)$. En racionales, factoriza numerador y denominador.</li>
+<li><b>Puntos críticos (PC):</b> iguala cada factor a cero. Son los puntos donde la expresión puede cambiar de signo.</li>
+<li><b>Recta numérica:</b> ubica los PC. Con $\\ge$ o $\\le$, los PC del numerador son cerrados $[\\,]$. Los PC del <b>denominador SIEMPRE son abiertos</b>, porque causan división por cero.</li>
+<li><b>Signos:</b> alterna $(+, -, +, -)$ desde el extremo derecho hacia la izquierda.</li>
+<li><b>Conjunto solución:</b> si es $>0$ o $\\ge 0$, elige las zonas $(+)$; si es $<0$ o $\\le 0$, las zonas $(-)$.</li></ol>
+<p>Ejemplo: $(x-1)(x-4)(x-6) \\ge 0$ tiene PC $1, 4, 6$ y signos $(-)\\,1\\,(+)\\,4\\,(-)\\,6\\,(+)$. Solución: $[1, 4] \\cup [6, +\\infty\\rangle$.</p>
+<div data-nl='{"min":0,"max":8,"step":1,"sol":"[1,4] U [6,inf)","name":"[1, 4] ∪ [6, +∞⟩","label":"Solución en la recta numérica"}'></div>
+<p class="rule"><b>Raíces repetidas:</b> si un factor está elevado a una potencia par, como $(x-2)^2$, el signo <b>no cambia</b> al pasar por ese PC; solo lo hace con potencias impares.</p>
+<div data-pl="cub"></div>
+<h4>Inecuaciones racionales</h4>
+<p>El cociente $\\frac{P(x)}{Q(x)}$ cambia de signo en las raíces de $P$ y de $Q$. Los PC del numerador pueden ser cerrados; los del denominador, nunca. En la gráfica, la raíz del denominador es una asíntota vertical que la curva no toca.</p>
+<p class="rule"><b>Error frecuente:</b> pasar el denominador multiplicando al otro miembro, como $\\frac{2x-10}{x-2} \\le 0 \\Rightarrow 2x - 10 \\le 0$. Solo sería válido si $x - 2 > 0$.</p>
+<div data-pl="rac"></div>
+<h4>Lista de control</h4>
+<ul><li>¿Dejé todo comparado con cero antes de factorizar?</li>
+<li>¿Invertí el sentido al multiplicar o dividir por un negativo?</li>
+<li>¿Dejé abiertos los PC del denominador y de las desigualdades estrictas?</li>
+<li>¿Alterné los signos desde la derecha y elegí las zonas que pide el símbolo?</li>
+<li>¿Comprobé con un valor de prueba dentro de la zona elegida?</li></ul>
+<h4>Explora: puntos críticos y signos</h4>
+<p>Mueve las raíces $a$, $b$ y $c$ de $(x-a)(x-b)(x-c)$ y pulsa el botón para cambiar el símbolo. Observa cómo se alternan los signos, cuándo los extremos son cerrados o abiertos y qué pasa si dos raíces coinciden.</p>
+<div id="iv"></div>`,
+c:[
+{t:'Economía',lvl:'Aplicación',
+ ctx:`Una empresa modela sus ingresos con $I(x) = -x^2 + 120x$ y sus costos con $C(x) = 40x + 700$, ambos en soles, donde $x$ es la cantidad de unidades vendidas.`,rule:`Regla de rentabilidad: <b>la empresa es rentable cuando $I(x) > C(x)$.</b>`,
+ ch:{x:[0,100],y:[0,4000],xl:'unidades x',yl:'S/',al:'Parábola de ingresos frente a la recta de costos; el tramo rentable queda entre sus cortes',f:[{fn:x=>-x*x+120*x,c:G_,n:'Ingresos I(x) = −x² + 120x'},{fn:x=>40*x+700,c:R_,n:'Costos C(x) = 40x + 700'}],ar:[{a:x=>-x*x+120*x,b:x=>40*x+700,x:[10,70],c:G_,n:'Zona rentable (I > C)',s:1}],m:[{x:10,y:1100,c:A_,n:'x = 10: I = C',l:'(10; 1100)',s:1},{x:70,y:3500,c:A_,n:'x = 70: I = C',l:'(70; 3500)',s:1}]},
+ th:`En $ax^2 + bx + c < 0$ se factoriza y se buscan los puntos críticos. La parábola está <b>debajo</b> del eje $x$ entre sus raíces cuando $a > 0$. Al multiplicar por $-1$ la desigualdad se invierte. En la figura, $x^2 - 4x + 3 < 0$ se cumple en $\\langle 1, 3 \\rangle$.`,thf:'quad',
+ sol:[`Plantea la regla: $-x^2 + 120x > 40x + 700$`,`Pasa todo a un lado: $-x^2 + 80x - 700 > 0$`,`Multiplica por $-1$ e invierte el sentido: $x^2 - 80x + 700 < 0$`,`Factoriza: $(x - 10)(x - 70) < 0$. Puntos críticos: $10$ y $70$`,`Signos $(+, -, +)$ de derecha a izquierda. Se pide $<0$: la zona $(-)$ queda entre los PC`,`Desigualdad estricta, extremos abiertos: $x \\in \\langle 10, 70 \\rangle$`],
+ st:[{k:'in',q:`Halla los puntos de equilibrio resolviendo $I(x) = C(x)$. Escribe los dos valores de $x$ separados por coma.`,a:[10,70],h:'Pista: llegas a $x^2 - 80x + 700 = 0$, que factoriza como $(x - 10)(x - 70) = 0$.',why:'Correcto: en $x = 10$ y $x = 70$ los ingresos igualan a los costos.'},
+     {k:'ch',q:`¿En qué intervalo de $x$ la empresa es rentable, es decir, $I(x) > C(x)$?`,o:[['$\\langle -\\infty, 10 \\rangle \\cup \\langle 70, +\\infty \\rangle$','Esa es la zona donde $I(x) < C(x)$: hay pérdidas. La parábola de ingresos queda por debajo de la recta de costos.'],['$\\langle 10, 70 \\rangle$',''],['$[10, 70]$','En $x = 10$ y $x = 70$ se cumple $I = C$, no $I > C$. La desigualdad es estricta, así que los extremos son abiertos.']],ok:1,why:'Correcto: entre 10 y 70 la parábola está por encima de la recta, así que $I(x) > C(x)$.'}]},
+{t:'Ingeniería Ambiental',lvl:'Auditoría de errores',
+ ctx:`En una planta de tratamiento, un índice de calidad $Q(x) = \\frac{2x - 10}{x - 2}$ depende de la dosis $x$ de un reactivo. El agua se considera apta cuando $Q(x) \\le 0$. Un técnico resolvió $\\frac{2x - 10}{x - 2} \\le 0$, pero cometió un error.`,
+ ch:{x:[-5,9],y:[-8,8],hide:1,xl:'dosis x',yl:'Q(x)',al:'Función racional con asíntota vertical en x = 2; el tramo bajo el eje x está resaltado',f:[{fn:ASY(x=>(2*x-10)/(x-2),2),c:C_,n:'Q(x) = (2x − 10)/(x − 2)'}],ar:[{a:()=>0,b:x=>Math.max(-9,(2*x-10)/(x-2)),x:[2,5],c:G_,n:'Tramo apto (Q ≤ 0)'}],vl:[{x:2,c:R_,n:'x = 2 (prohibido)',d:1}],m:[{x:5,y:0,c:G_,n:'x = 5 incluido (Q = 0)',l:'x = 5'}]},
+ nl:{min:-1,max:8,step:1,sol:'(2,5]',name:'Solución: ⟨2, 5]',label:'Recta numérica: x = 2 abierto, x = 5 cerrado'},
+ th:`Una inecuación racional $\\frac{P(x)}{Q(x)} \\le 0$ cambia de signo en las raíces de $P$ y de $Q$. Las del numerador pueden ser cerradas; las del denominador son <b>siempre abiertas</b>, porque anulan el denominador. No se pasa $Q(x)$ multiplicando sin conocer su signo. En la figura, $\\frac{x-1}{x+1} \\ge 0$ tiene asíntota en $x = -1$ y solución $\\langle -\\infty, -1 \\rangle \\cup [1, +\\infty \\rangle$.`,thf:'rac',
+ sol:[`Restricción: $x \\neq 2$, porque el denominador no puede anularse`,`Puntos críticos: numerador $2x - 10 = 0 \\Rightarrow x = 5$ (cerrado, por el $\\le$); denominador $x - 2 = 0 \\Rightarrow x = 2$ (abierto)`,`Signos de derecha a izquierda: $[5, +\\infty\\rangle$ es $(+)$, $\\langle 2, 5]$ es $(-)$, $\\langle -\\infty, 2 \\rangle$ es $(+)$`,`Se pide $\\le 0$: se elige la zona $(-)$, es decir, $\\langle 2, 5]$`,`Comprueba: con $x = 3$, $Q = -4 \\le 0$ ✓; con $x = 5$, $Q = 0$ ✓`],
+ st:[{k:'pick',q:`El técnico resolvió la inecuación con estos pasos. ¿Qué línea contiene el error?`,s:['$\\frac{2x-10}{x-2} \\le 0$','$2x - 10 \\le 0 \\cdot (x - 2)$','$2x \\le 10$','$x \\le 5$'],ok:1,why:'Correcto: no se puede multiplicar por $x - 2$ sin conocer su signo. Si es negativo, la desigualdad se invierte. Por eso se usan puntos críticos.'},
+     {k:'ch',q:`Aplica el método de los puntos críticos. ¿Cuál es el conjunto solución de $\\frac{2x-10}{x-2} \\le 0$?`,o:[['$\\langle -\\infty, 5]$','Es la respuesta del técnico. Incluye $x = 0$, donde $Q = 5 > 0$, y no excluye $x = 2$.'],['$\\langle 2, 5]$',''],['$[2, 5]$','$x = 2$ anula el denominador: el extremo del denominador es siempre abierto.']],ok:1,why:'Correcto: $x = 5$ es cerrado (numerador) y $x = 2$ es abierto (denominador), con signo $(-)$ entre ambos.'}]},
+{t:'Psicología',lvl:'Decisión',
+ ctx:`Una psicóloga modela con $(x - 1)(x - 4)(x - 6)$ la carga cognitiva relativa de un test. Un participante obtuvo el puntaje $x = 5$.`,rule:`Regla del modelo: <b>la zona de riesgo corresponde a $(x - 1)(x - 4)(x - 6) \\ge 0$, es decir, a los intervalos con signo $(+)$.</b>`,
+ ch:{x:[0,7],y:[-12,20],hide:1,xl:'puntaje x',al:'Cúbica con raíces en 1, 4 y 6; zonas de riesgo en rojo y zonas seguras en verde',f:[{fn:x=>(x-1)*(x-4)*(x-6),c:C_,n:'Carga (x − 1)(x − 4)(x − 6)'}],bd:[{x:[0,1],c:G_,n:'Seguro'},{x:[1,4],c:R_,n:'Riesgo'},{x:[4,6],c:G_,n:'Seguro'},{x:[6,7],c:R_,n:'Riesgo'}],m:[{x:1,y:0,c:A_,n:'Raíz x = 1',l:'1'},{x:4,y:0,c:A_,n:'Raíz x = 4',l:'4'},{x:6,y:0,c:A_,n:'Raíz x = 6',l:'6'},{x:5,y:-4,c:M_,n:'Participante: x = 5, zona segura',l:'x = 5'}]},
+ th:`En una desigualdad de grado superior se factoriza y se ubican los puntos críticos; los signos se alternan desde la derecha. Las zonas $(+)$ están sobre el eje $x$ y las $(-)$, debajo. En la figura, $(x+2)(x-1)(x-3) \\ge 0$ se cumple en $[-2, 1] \\cup [3, +\\infty\\rangle$. Para ubicar un valor, se identifica en qué intervalo cae.`,thf:'cub',
+ sol:[`Puntos críticos: $x - 1 = 0$, $x - 4 = 0$, $x - 6 = 0 \\Rightarrow 1, 4, 6$`,`Signos de derecha a izquierda: $[6, +\\infty\\rangle$ es $(+)$, $[4, 6]$ es $(-)$, $[1, 4]$ es $(+)$, $\\langle -\\infty, 1]$ es $(-)$`,`Zona de riesgo ($\\ge 0$): $[1, 4] \\cup [6, +\\infty\\rangle$`,`El puntaje $x = 5$ cae en $[4, 6]$, de signo $(-)$: zona segura. Comprueba: $(4)(1)(-1) = -4 < 0$`],
+ st:[{k:'ch',q:`¿En qué zona está el participante con puntaje $x = 5$ y por qué?`,o:[['Zona de riesgo, porque 5 es mayor que 4 y los valores grandes dan signo positivo.','Los signos se alternan al cruzar cada punto crítico. A la derecha de 6 es $(+)$, pero entre 4 y 6 es $(-)$.'],['Zona segura, porque 5 pertenece al intervalo $[4, 6]$, el cual tiene signo negativo.',''],['Zona de riesgo, porque 5 pertenece al intervalo $[4, 6]$, el cual tiene signo positivo.','Comprueba: $(5-1)(5-4)(5-6) = 4 \\cdot 1 \\cdot (-1) = -4$. Es negativo, no cumple $\\ge 0$.']],ok:1,why:'Correcto: $x = 5$ está en $[4, 6]$, de signo $(-)$, y la zona de riesgo exige $(+)$.'}]}
+]},
+{n:'Ecuaciones con valor absoluto',comp:`
+<h4>Definición formal</h4>
+<p>El valor absoluto de un número real $x$, denotado $\\vert x \\vert$, es su <b>distancia al cero</b> en la recta numérica. Como es una distancia, <b>nunca puede ser negativo</b>.</p>
+<ul><li>$\\vert x \\vert = x$ si $x \\ge 0$</li><li>$\\vert x \\vert = -x$ si $x < 0$</li></ul>
+<p>Más en general, $\\vert x - c \\vert$ es la distancia entre $x$ y $c$. Así, $\\vert x - 3 \\vert = 2$ pregunta: ¿qué números están a distancia 2 del 3? Hay uno a cada lado.</p>
+<div data-nl='{"min":-1,"max":7,"step":1,"pts":[[1,"1","g"],[3,"centro 3","a"],[5,"5","g"]],"label":"Dos puntos a distancia 2 del número 3"}'></div>
+<h4>Propiedades útiles</h4>
+<ul><li>$\\vert a \\vert \\ge 0$ y $\\vert a \\vert = 0$ solo si $a = 0$.</li><li>$\\vert -a \\vert = \\vert a \\vert$ y $\\vert ab \\vert = \\vert a \\vert \\cdot \\vert b \\vert$.</li><li>$\\vert A \\vert = \\vert B \\vert \\Rightarrow A = B \\lor A = -B$.</li></ul>
+<h4>Teorema fundamental de la ecuación $\\vert A \\vert = B$</h4>
+<ol><li><b>Condición de existencia:</b> verifica primero que $B \\ge 0$. Si $B < 0$, la ecuación es un absurdo y su solución es el conjunto vacío ($\\emptyset$).</li>
+<li><b>Bifurcación lógica:</b> si $B \\ge 0$, la distancia se cumple hacia la derecha o hacia la izquierda del centro. Se plantean dos casos: <b>positivo</b> $A = B$ y <b>negativo</b> $A = -B$.</li>
+<li><b>Solución:</b> la unión de los resultados de ambos casos. Si el contexto impone restricciones, se filtran al final.</li></ol>
+<p>Gráficamente, $y = \\vert A \\vert$ es una «V» con vértice donde $A = 0$. La recta $y = B$ la corta en dos puntos si $B > 0$, en uno si $B = 0$ y en ninguno si $B < 0$.</p>
+<div data-pl="abs"></div>
+<p class="rule"><b>Error frecuente:</b> plantear $A = B$ y $A = -B$ sin revisar el signo de $B$. En $\\vert x - 5000 \\vert = -200$ se obtendrían dos «soluciones» falsas.</p>
+<div data-pl="vac"></div>
+<h4>Lista de control</h4>
+<ul><li>¿Verifiqué que el lado derecho $B$ sea $\\ge 0$?</li>
+<li>¿Planteé los dos casos, $A = B$ y $A = -B$?</li>
+<li>¿Verifiqué cada solución en la ecuación original y en las condiciones del contexto?</li></ul>`,
+c:[
+{t:'Ingeniería Mecatrónica',lvl:'Aplicación',
+ ctx:`El error de posición de un brazo robótico se modela con $\\vert 2x - 50 \\vert$ (en mm), donde $x$ es el valor de calibración. El control exige un error exactamente igual a 4 mm: $\\vert 2x - 50 \\vert = 4$.`,
+ ch:{x:[15,35],y:[0,12],xl:'calibración x',yl:'error (mm)',al:'Forma de V con vértice en x = 25 cortada por la recta y = 4',f:[{fn:x=>Math.abs(2*x-50),c:C_,n:'y = |2x − 50|'},{fn:()=>4,c:A_,n:'y = 4',d:1}],m:[{x:25,y:0,c:M_,n:'Vértice: x = 25',l:'(25; 0)'},{x:23,y:4,c:G_,n:'x = 23',l:'(23; 4)',s:1},{x:27,y:4,c:G_,n:'x = 27',l:'(27; 4)',s:1}]},
+ th:`Como $4 \\ge 0$, la ecuación $\\vert A \\vert = B$ se bifurca en $A = B$ y $A = -B$. En la gráfica, la recta horizontal corta la «V» en dos puntos, uno a cada lado del vértice. En la figura, $\\vert x - 3 \\vert = 2$ da $x = 1$ y $x = 5$.`,thf:'abs',
+ sol:[`Condición de existencia: $B = 4 \\ge 0$ ✓`,`Caso positivo: $2x - 50 = 4 \\Rightarrow 2x = 54 \\Rightarrow x = 27$`,`Caso negativo: $2x - 50 = -4 \\Rightarrow 2x = 46 \\Rightarrow x = 23$`,`Verifica: $\\vert 2(27) - 50 \\vert = 4$ ✓ y $\\vert 2(23) - 50 \\vert = 4$ ✓. Solución: $\\{23, 27\\}$`],
+ st:[{k:'in',q:`Resuelve $\\vert 2x - 50 \\vert = 4$. Escribe los dos valores de $x$ separados por coma.`,a:[23,27],h:'Pista: plantea $2x - 50 = 4$ y $2x - 50 = -4$.',why:'Correcto: las dos calibraciones son $x = 23$ y $x = 27$, simétricas respecto del vértice $x = 25$.'}]},
+{t:'Contabilidad y Finanzas',lvl:'Auditoría de errores',
+ ctx:`Una alerta de auditoría se define por $\\vert x - 5000 \\vert = -200$, donde $x$ es el saldo de una cuenta y 5 000 el saldo esperado (en soles). Un asistente reportó dos saldos como solución.`,
+ ch:{x:[4500,5500],y:[-300,500],hide:1,xl:'saldo x (S/)',yl:'y',al:'La V nunca baja de 0, así que no toca la recta y = −200',f:[{fn:x=>Math.abs(x-5000),c:C_,n:'y = |x − 5000|'},{fn:()=>-200,c:R_,n:'y = −200',d:1}],ar:[{a:()=>-200,b:()=>0,x:[4500,5500],c:R_,n:'Zona inalcanzable (y < 0)'}],m:[{x:5000,y:0,c:M_,n:'Vértice: mínimo 0',l:'(5000; 0)'}]},
+ th:`Un valor absoluto es una distancia y nunca es negativo. Si $B < 0$, la ecuación $\\vert A \\vert = B$ no tiene solución: la recta $y = B$ queda bajo el eje $x$ y nunca corta la «V». En la figura, $\\vert x \\vert = -2$ no tiene solución. El conjunto solución es $\\emptyset$.`,thf:'vac',
+ sol:[`Condición de existencia: $B = -200 < 0$ ✗`,`Un valor absoluto no puede ser negativo, así que no se bifurca en dos casos`,`La ecuación es un absurdo y no tiene solución. Conjunto solución: $\\emptyset$`],
+ st:[{k:'pick',q:`El asistente resolvió la ecuación con estos pasos. ¿Qué línea contiene el error?`,s:['$\\vert x - 5000 \\vert = -200$','Caso 1: $x - 5000 = -200 \\Rightarrow x = 4800$','Caso 2: $x - 5000 = 200 \\Rightarrow x = 5200$','$x \\in \\{4800, 5200\\}$'],ok:1,why:'Correcto: antes de plantear los casos debe verificarse $B \\ge 0$. Aquí $B = -200 < 0$, así que no existe ningún caso válido.'},
+     {k:'ch',q:`¿Cuál es el conjunto solución de $\\vert x - 5000 \\vert = -200$?`,o:[['$\\{4800, 5200\\}$','Esos valores salen de bifurcar sin revisar $B$. Por ejemplo, $\\vert 4800 - 5000 \\vert = 200$, no $-200$.'],['Conjunto vacío ($\\emptyset$)',''],['$\\{5000\\}$','$x = 5000$ es el vértice: $\\vert 5000 - 5000 \\vert = 0$, no $-200$.']],ok:1,why:'Correcto: una distancia nunca es negativa, así que la ecuación no tiene solución.'}]},
+{t:'Arquitectura',lvl:'Decisión',
+ ctx:`La tensión de un cable se modela con $\\vert 3x - 120 \\vert = 30$, donde $x$ es un parámetro de tensado.`,rule:`Regla técnica: <b>$x$ no debe ser mayor a 40.</b>`,
+ ch:{x:[20,60],y:[0,66],hide:1,xl:'parámetro x',yl:'tensión',al:'V con vértice en x = 40, recta y = 30 y barrera técnica en x = 40',f:[{fn:x=>Math.abs(3*x-120),c:C_,n:'y = |3x − 120|'},{fn:()=>30,c:A_,n:'y = 30',d:1}],bd:[{x:[20,40],c:G_,n:'Zona segura'},{x:[40,60],c:R_,n:'Zona de peligro'}],vl:[{x:40,c:R_,n:'Límite x = 40'}],m:[{x:30,y:30,c:G_,n:'x = 30: cumple la regla',l:'x = 30'},{x:50,y:30,c:R_,n:'x = 50: supera el límite',l:'x = 50'}]},
+ th:`Primero se resuelve la ecuación con sus dos casos. Después se filtran las soluciones según la condición del contexto, porque una solución matemática puede incumplir una regla técnica. En la figura, $\\vert x - 3 \\vert = 2$ tiene soluciones $1$ y $5$; con la regla «$x \\le 4$» solo quedaría $x = 1$.`,thf:'abs',
+ sol:[`Condición de existencia: $B = 30 \\ge 0$ ✓`,`Caso positivo: $3x - 120 = 30 \\Rightarrow 3x = 150 \\Rightarrow x = 50$`,`Caso negativo: $3x - 120 = -30 \\Rightarrow 3x = 90 \\Rightarrow x = 30$`,`Aplica la regla técnica $x \\le 40$: se descarta $x = 50$ y queda $x = 30$`],
+ st:[{k:'in',q:`Resuelve $\\vert 3x - 120 \\vert = 30$. Escribe los dos valores de $x$ separados por coma.`,a:[30,50],h:'Pista: plantea $3x - 120 = 30$ y $3x - 120 = -30$.',why:'Correcto: las soluciones de la ecuación son $x = 30$ y $x = 50$.'},
+     {k:'ch',q:`Aplicando la regla técnica ($x$ no debe ser mayor a 40), ¿qué valor es admisible?`,o:[['$x = 50$','Es solución de la ecuación, pero $50 > 40$ incumple la regla técnica.'],['$x = 30$',''],['$x = 40$','$x = 40$ es el vértice: $\\vert 3(40) - 120 \\vert = 0$, no $30$.']],ok:1,why:'Correcto: $x = 30$ cumple la ecuación y la regla ($30 \\le 40$).'}]}
+]},
+{n:'Inecuaciones con valor absoluto',comp:`
+<h4>Márgenes de tolerancia respecto a un centro</h4>
+<p>Las inecuaciones con valor absoluto describen márgenes o rangos de tolerancia alrededor de un punto central. Como $\\vert x - c \\vert$ es la distancia entre $x$ y $c$, la pregunta es: ¿qué valores quedan <b>cerca</b> o <b>lejos</b> del centro? Las dos propiedades fundamentales dependen del operador (suponiendo $B > 0$).</p>
+<h4>1. Modelo de acotamiento (menor que: $<$ ó $\\le$)</h4>
+<p><b>Propiedad:</b> $\\vert A \\vert \\le B \\iff -B \\le A \\le B$ (y lo mismo con $<$, con extremos abiertos).</p>
+<p><b>Interpretación:</b> representa los valores que están «cerca» del centro. Encierra un <b>único intervalo continuo</b> (una intersección: $A \\ge -B$ <b>y</b> $A \\le B$). Ejemplos: controles de calidad y márgenes de seguridad.</p>
+<div data-pl="tol"></div>
+<div data-nl='{"min":-1,"max":7,"step":1,"sol":"[1,5]","name":"|x − 3| ≤ 2 ⇒ [1, 5]","label":"Intervalo continuo alrededor de 3"}'></div>
+<h4>2. Modelo de divergencia (mayor que: $>$ ó $\\ge$)</h4>
+<p><b>Propiedad:</b> $\\vert A \\vert > B \\iff A > B \\;\\cup\\; A < -B$ (y lo mismo con $\\ge$, con extremos cerrados).</p>
+<p><b>Interpretación:</b> representa los valores que se «alejan» del centro. Genera <b>dos intervalos separados</b> que se extienden hacia el infinito (una unión: $A > B$ <b>ó</b> $A < -B$). Ejemplos: exceder un límite de velocidad o salir de un rango seguro de presión.</p>
+<div data-pl="div"></div>
+<div data-nl='{"min":-1,"max":7,"step":1,"sol":"(-inf,1) U (5,inf)","color":"#ff4d6d","name":"|x − 3| > 2 ⇒ ⟨−∞, 1⟩ ∪ ⟨5, +∞⟩","label":"Dos tramos que se alejan de 3"}'></div>
+<p class="rule"><b>Error frecuente:</b> escribir la divergencia como una cadena, $65 > v > 95$. Ningún número es a la vez menor que 65 y mayor que 95, así que esa cadena es vacía. La divergencia es una <b>unión</b> de dos condiciones, no una intersección.</p>
+<h4>Casos especiales ($B \\le 0$)</h4>
+<ul><li>$\\vert A \\vert < B$ o $\\vert A \\vert \\le B$ con $B < 0$: <b>no hay solución</b> ($\\emptyset$), porque una distancia no es negativa.</li>
+<li>$\\vert A \\vert \\le 0$ equivale a $A = 0$.</li>
+<li>$\\vert A \\vert > B$ o $\\vert A \\vert \\ge B$ con $B < 0$: <b>se cumple siempre</b>, para todo $x$ donde $A$ esté definido (solución $\\mathbb{R}$).</li></ul>
+<h4>Lista de control</h4>
+<ul><li>¿Identifiqué el centro y el margen? ¿Es «cerca» (acotamiento) o «lejos» (divergencia)?</li>
+<li>¿Usé intersección en el acotamiento y unión en la divergencia?</li>
+<li>¿Los extremos son cerrados con $\\le$ o $\\ge$, y abiertos con $<$ o $>$?</li>
+<li>¿Probé un valor dentro y otro fuera de la solución?</li></ul>`,
+c:[
+{t:'Ingeniería Industrial',lvl:'Aplicación',
+ ctx:`Una máquina envasa café en bolsas de 250 g. El control de calidad acepta las bolsas cuyo peso $x$ (en gramos) cumple $\\vert x - 250 \\vert \\le 5$.`,
+ ch:{x:[240,260],y:[0,10],xl:'peso x (g)',yl:'desviación (g)',al:'V de y = |x − 250| bajo la recta máxima y = 5; el rango aceptable va de 245 a 255',f:[{fn:x=>Math.abs(x-250),c:C_,n:'y = |x − 250|'},{fn:()=>5,c:A_,n:'Máximo y = 5',d:1}],bd:[{x:[245,255],c:G_,n:'Rango aceptable',s:1}],m:[{x:250,y:0,c:M_,n:'Centro: 250 g',l:'(250; 0)'},{x:245,y:5,c:G_,n:'x = 245',l:'245',s:1},{x:255,y:5,c:G_,n:'x = 255',l:'255',s:1}]},
+ nl:{min:240,max:260,step:5,sol:'[245,255]',color:'#a3e635',name:'Rango aceptable [245, 255]',label:'Rango aceptable de peso',s:1},
+ th:`En el acotamiento, $\\vert A \\vert \\le B \\iff -B \\le A \\le B$: los valores «cerca» del centro forman un intervalo continuo, y la parte de la V que queda bajo la recta $y = B$ marca la solución. En la figura, $\\vert x - 3 \\vert \\le 2$ da $[1, 5]$.`,thf:'tol',
+ sol:[`Condición: $B = 5 > 0$, se aplica el acotamiento`,`Plantea: $-5 \\le x - 250 \\le 5$`,`Suma 250 a los tres miembros: $245 \\le x \\le 255$`,`Con $\\le$ los extremos son cerrados: $x \\in [245, 255]$`,`Verifica: $x = 250$ cumple ($0 \\le 5$); $x = 256$ no ($6 > 5$)`],
+ st:[{k:'in',q:`Resuelve $\\vert x - 250 \\vert \\le 5$. Escribe los extremos del intervalo, de menor a mayor, separados por coma.`,a:[245,255],h:'Pista: $-5 \\le x - 250 \\le 5$; suma 250 a cada miembro.',why:'Correcto: las bolsas aceptables pesan entre 245 g y 255 g, ambos incluidos.'}]},
+{t:'Derecho',lvl:'Auditoría de errores',
+ ctx:`En un peritaje vial, se considera infracción por exceso de tolerancia que la velocidad $v$ (en km/h) se aleje más de 15 km/h de la referencia de 80: $\\vert v - 80 \\vert > 15$. Un analista la evaluó como si fuera un acotamiento.`,
+ ch:{x:[40,120],y:[0,50],hide:1,xl:'velocidad v (km/h)',al:'V de y = |v − 80| sobre la recta y = 15; las zonas de infracción están a ambos lados',f:[{fn:x=>Math.abs(x-80),c:C_,n:'y = |v − 80|'},{fn:()=>15,c:A_,n:'Tolerancia y = 15',d:1}],bd:[{x:[40,65],c:R_,n:'Infracción'},{x:[65,95],c:G_,n:'Dentro de la tolerancia'},{x:[95,120],c:R_,n:'Infracción'}],m:[{x:80,y:0,c:A_,n:'Centro: 80 km/h',l:'80'},{x:65,y:15,c:R_,n:'v = 65',l:'65'},{x:95,y:15,c:R_,n:'v = 95',l:'95'}]},
+ nl:{min:50,max:110,step:5,sol:'(-inf,65) U (95,inf)',color:'#ff4d6d',pts:[[80,'centro 80','a']],name:'Infracción: ⟨−∞, 65⟩ ∪ ⟨95, +∞⟩',label:'Zonas de infracción respecto de 80 km/h'},
+ th:`En la divergencia, $\\vert A \\vert > B \\iff A > B \\cup A < -B$: los valores que se alejan del centro forman dos tramos que se extienden hacia el infinito, la parte de la V que queda sobre la recta $y = B$. Es una <b>unión</b>, no una cadena. En la figura, $\\vert x - 3 \\vert > 2$ da $\\langle -\\infty, 1 \\rangle \\cup \\langle 5, +\\infty \\rangle$.`,thf:'div',
+ sol:[`Condición: $B = 15 > 0$, se aplica la divergencia`,`Caso 1: $v - 80 > 15 \\Rightarrow v > 95$`,`Caso 2: $v - 80 < -15 \\Rightarrow v < 65$`,`Une los casos (ó): $v \\in \\langle -\\infty, 65 \\rangle \\cup \\langle 95, +\\infty \\rangle$, con extremos abiertos por el $>$`,`Verifica: $v = 100$ da $20 > 15$ ✓; $v = 80$ da $0$, no cumple`],
+ st:[{k:'pick',q:`El analista resolvió la inecuación con estos pasos. ¿Qué línea contiene el error?`,s:['$\\vert v - 80 \\vert > 15$','Plantea: $v - 80 > 15$ y $v - 80 < -15$','Despeje: $65 > v > 95$','Conclusión: ningún valor de $v$ cumple ($\\emptyset$)'],ok:2,why:'Correcto: en la divergencia los casos se unen (ó). La cadena $65 > v > 95$ exige ser menor que 65 y mayor que 95 a la vez, lo cual es imposible.'},
+     {k:'ch',q:`Aplica el modelo de divergencia. ¿Cuál es el conjunto de velocidades que constituyen infracción?`,o:[['$\\langle -\\infty, 65 \\rangle \\cup \\langle 95, +\\infty \\rangle$',''],['$\\langle 65, 95 \\rangle$','Es el tramo dentro de la tolerancia, el que corresponde a $\\vert v - 80 \\vert < 15$ (acotamiento), no a la infracción.'],['$\\emptyset$','Es el resultado de intersectar los dos casos con la cadena $65 > v > 95$. Los casos de la divergencia se unen.']],ok:0,why:'Correcto: hay infracción si $v < 65$ ó $v > 95$, los valores que se alejan más de 15 km/h de 80.'}]},
+{t:'Medicina Humana',lvl:'Decisión',
+ ctx:`En un modelo de ejemplo, un monitor considera seguro el valor $P$ de un paciente cuando $\\vert P - 110 \\vert \\le 10$. La lectura actual es $P = 125$.`,rule:`Regla: <b>activar alerta si la lectura sale del intervalo seguro.</b>`,
+ ch:{x:[80,140],y:[0,36],hide:1,xl:'lectura P',al:'V de y = |P − 110| con zona segura entre 100 y 120 y la lectura P = 125 en la zona roja',f:[{fn:x=>Math.abs(x-110),c:C_,n:'y = |P − 110|'},{fn:()=>10,c:A_,n:'Margen y = 10',d:1}],bd:[{x:[80,100],c:R_,n:'Alerta'},{x:[100,120],c:G_,n:'Seguro'},{x:[120,140],c:R_,n:'Alerta'}],m:[{x:125,y:15,c:R_,n:'Lectura P = 125: fuera del intervalo',l:'P = 125'}]},
+ nl:{min:80,max:140,step:10,sol:'[100,120]',color:'#a3e635',pts:[[125,'P = 125','r']],name:'Intervalo seguro [100, 120]',label:'Monitor: intervalo seguro y lectura actual'},
+ th:`En un acotamiento, $\\vert P - c \\vert \\le B$ describe la zona segura alrededor del centro: $c - B \\le P \\le c + B$. Una lectura que cae fuera de ese intervalo es una divergencia: $\\vert P - c \\vert > B$. Para decidir, se compara la lectura con los extremos, o se calcula su distancia al centro. En la figura, un valor en la zona verde cumple $\\vert x - 3 \\vert \\le 2$.`,thf:'tol',
+ sol:[`Plantea el acotamiento: $-10 \\le P - 110 \\le 10$`,`Suma 110: $100 \\le P \\le 120$. Intervalo seguro: $[100, 120]$`,`Compara: $P = 125 > 120$, así que está fuera. Comprueba: $\\vert 125 - 110 \\vert = 15 > 10$`,`Según la regla, corresponde activar alerta`],
+ st:[{k:'ch',q:`Con la lectura $P = 125$ y la regla del monitor, ¿qué acción corresponde?`,o:[['Mantener el monitoreo normal','Falla: $\\vert 125 - 110 \\vert = 15 > 10$, la lectura está fuera del intervalo $[100, 120]$ y la regla exige alerta.'],['ACTIVAR ALERTA',''],['Esperar otra lectura sin activar alerta','La regla dice activar alerta apenas la lectura sale del intervalo seguro, y 125 > 120.']],ok:1,why:'Correcto: 125 no pertenece a $[100, 120]$, así que se activa la alerta.'}]}
+]}];
+
+// ---- point cloud: morphs between the curves of the 5 topics over a coordinate grid ----
+// Usage: put <canvas id="cloud" aria-hidden="true"> inside any positioned box, then call CLOUD.sync().
+// Optional data attributes on the canvas: data-a (opacity factor, default 1), data-cx (horizontal centre, default .5)
+const CLOUD=(()=>{
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches,
+  MODES={sutil:{hold:5200,al:.8,push:10},dinamico:{hold:3000,al:1,push:24}},
+  SH=[
+   {n:'y = x²',f:u=>{const x=-1+2*u;return[x,-(1.6*x*x-.8)]}},
+   {n:'y = 1/x',f:u=>{const b=u<.5,v=(b?u:u-.5)*2,x=b?-1+v*.82:.18+v*.82;return[x,-Math.max(-1,Math.min(1,.3/x))]}},
+   {n:'y = |x|',f:u=>{const x=-1+2*u;return[x,-(1.4*Math.abs(x)-.7)]}},
+   {n:'y = x(x² − 0,64)',f:u=>{const x=-1+2*u;return[x,-1.5*x*(x*x-.64)]}},
+   {n:'y = ±√(x + 1)',f:u=>{const b=u<.5,v=(b?u:u-.5)*2,x=-1+2*v,s=Math.sqrt(x+1)*.7;return[x,b?-s:s]}}];
+let cv,cx,eq,ro,io,mode=MODES.sutil,W=0,H=0,dpr=1,P=[],Hh=[],D=[],sh=0,tM=0,raf=0,last=0,vis=true,mx=-1e3,my=-1e3,ox=0,oy=0,A=1,CX=.5;
+
+const mk=(u,j)=>{const p={u,jx:(Math.random()-.5)*j,jy:(Math.random()-.5)*j,k:.02+Math.random()*.03,d:0,x:(Math.random()-.5)*2.4,y:(Math.random()-.5)*2.4,lime:Math.random()<.1};tg(p);return p};
+function tg(p){const[x,y]=SH[sh].f(p.u);p.tx=x+p.jx;p.ty=y+p.jy}
+function label(){if(!eq)return;eq.style.opacity=0;setTimeout(()=>{eq.textContent=SH[sh].n;eq.style.opacity=.9},350)}
+
+function init(first){
+  const r=cv.getBoundingClientRect();W=r.width;H=r.height;if(!W||!H)return;
+  dpr=Math.min(2,devicePixelRatio||1);cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);
+  const N=Math.round(Math.min(1300,Math.max(420,W*H/1000)));
+  if(P.length!=N){
+    P=Array.from({length:N},(_,i)=>mk((i+.5)/N,.03));
+    Hh=Array.from({length:Math.round(N*.9)},()=>mk(Math.random(),.28));
+    D=Array.from({length:Math.round(Math.min(160,W*H/6000))},()=>({fx:Math.random(),fy:Math.random(),v:.004+Math.random()*.01,z:.3+Math.random()*.7}));
+    if(!first||RM)[...P,...Hh].forEach(p=>{p.x=p.tx;p.y=p.ty})}
+  tM=performance.now();if(first)label();if(RM)draw(0,16)}
+
+function draw(now,dt){
+  const sx=Math.min(W*.4,720),sy=Math.min(H*.3,300),x0=W*CX+ox,y0=H*.52+oy,age=now-tM,f=dt/16.7,R=130,al=mode.al*A,cell=Math.max(44,Math.round(Math.min(W,H)/9));
+  cx.clearRect(0,0,W,H);
+  // coordinate plane
+  cx.lineWidth=1;cx.strokeStyle='rgba(60,84,140,'+(.22*A)+')';cx.beginPath();
+  for(let x=x0%cell;x<W;x+=cell){cx.moveTo(x,0);cx.lineTo(x,H)}for(let y=y0%cell;y<H;y+=cell){cx.moveTo(0,y);cx.lineTo(W,y)}cx.stroke();
+  cx.strokeStyle='rgba(34,211,238,'+(.28*A)+')';cx.beginPath();cx.moveTo(0,y0);cx.lineTo(W,y0);cx.moveTo(x0,0);cx.lineTo(x0,H);
+  for(let x=x0%cell;x<W;x+=cell){cx.moveTo(x,y0-4);cx.lineTo(x,y0+4)}for(let y=y0%cell;y<H;y+=cell){cx.moveTo(x0-4,y);cx.lineTo(x0+4,y)}cx.stroke();
+  // far layer
+  for(const d of D){const X=((d.fx*W+now*d.v*d.z*(RM?0:1))%W+W+ox*d.z*2)%W,Y=d.fy*H+oy*d.z*2;
+    cx.fillStyle='rgba(139,151,179,'+(.35*d.z*A)+')';cx.fillRect(X,Y,1,1)}
+  const mv=p=>{
+    if(!RM&&age>p.d){const k=1-Math.exp(-p.k*f);p.x+=(p.tx-p.x)*k;p.y+=(p.ty-p.y)*k}
+    let X=x0+p.x*sx,Y=y0+p.y*sy;
+    if(!RM){X+=Math.sin(now*.0007+p.u*40)*3;Y+=Math.cos(now*.0006+p.u*55)*3;
+      const dx=X-mx,dy=Y-my,d=Math.hypot(dx,dy);if(d<R&&d>0){const s=(R-d)/R*mode.push;X+=dx/d*s;Y+=dy/d*s}}
+    p.X=X;p.Y=Y};
+  P.forEach(mv);Hh.forEach(mv);
+  for(const p of Hh){cx.fillStyle=`rgba(34,211,238,${.22*al})`;cx.fillRect(p.X-.5,p.Y-.5,1.5,1.5)}
+  for(let i=1;i<P.length;i++){const a=P[i-1],b=P[i],d=Math.hypot(a.X-b.X,a.Y-b.Y);
+    if(d<34){cx.strokeStyle=`rgba(34,211,238,${(.3*al*(1-d/34)).toFixed(3)})`;cx.beginPath();cx.moveTo(a.X,a.Y);cx.lineTo(b.X,b.Y);cx.stroke()}}
+  for(const p of P){cx.fillStyle=p.lime?`rgba(163,230,53,${.55*al})`:`rgba(34,211,238,${.6*al})`;cx.fillRect(p.X-1,p.Y-1,2,2)}
+  // scan line: a horizontal line "solving" y = k against the curve
+  const ys=y0+(RM?-.2:Math.sin(now*.00045))*sy*.75;
+  cx.setLineDash([6,6]);cx.strokeStyle=`rgba(251,191,36,${.3*A})`;cx.beginPath();cx.moveTo(0,ys);cx.lineTo(W,ys);cx.stroke();cx.setLineDash([]);
+  let lx=-99,n=0;cx.strokeStyle=`rgba(251,191,36,${.9*A})`;
+  for(let i=1;i<P.length&&n<8;i++){const a=P[i-1],b=P[i];
+    if(Math.hypot(a.X-b.X,a.Y-b.Y)<34&&(a.Y-ys)*(b.Y-ys)<=0&&Math.abs(a.X-lx)>14){
+      const t=(ys-a.Y)/((b.Y-a.Y)||1),X=a.X+(b.X-a.X)*t;lx=X;n++;
+      cx.beginPath();cx.arc(X,ys,5+(RM?0:Math.sin(now*.006)*1.5),0,7);cx.stroke()}}}
+
+function loop(now){
+  raf=requestAnimationFrame(loop);const dt=Math.min(64,last?now-last:16);last=now;
+  if(now-tM>mode.hold+1800){sh=(sh+1)%SH.length;[...P,...Hh].forEach(p=>{tg(p);p.d=p.u*700});tM=now;label()}
+  ox+=((mx>-1e3?(W/2-mx)*.012:0)-ox)*.05;oy+=((my>-1e3?(H/2-my)*.012:0)-oy)*.05;
+  draw(now,dt)}
+function start(){if(!RM&&!raf&&cv&&vis&&!document.hidden){last=0;raf=requestAnimationFrame(loop)}}
+function stop(){cancelAnimationFrame(raf);raf=0}
+
+// call after the DOM that contains <canvas id="cloud"> changes (e.g. each time the home view renders)
+function sync(){
+  const c=document.getElementById('cloud');
+  if(!c){stop();cv=null;ro&&ro.disconnect();io&&io.disconnect();return}
+  if(c===cv){start();return}
+  stop();ro&&ro.disconnect();io&&io.disconnect();
+  cv=c;cx=c.getContext('2d');eq=document.querySelector('.eq');A=+c.dataset.a||1;CX=+c.dataset.cx||.5;P=[];
+  init(true);start();
+  ro=new ResizeObserver(()=>{clearTimeout(sync.t);sync.t=setTimeout(()=>init(false),150)});ro.observe(c);
+  io=new IntersectionObserver(e=>{vis=e[0].isIntersecting;vis?start():stop()});io.observe(c)}
+addEventListener('pointermove',e=>{if(!cv)return;const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top});
+document.addEventListener('pointerleave',()=>{mx=my=-1e3});
+document.addEventListener('visibilitychange',()=>document.hidden?stop():start());
+return{sync,stop,setMode:m=>{mode=MODES[m]||mode}}})();
+
+// ---- home ----
+const HOME=()=>`<section class="hero"><canvas id="cloud" data-a=".75" data-cx=".66" aria-hidden="true"></canvas><span class="eq" aria-hidden="true"></span>
+<h1><span class="glitch-text" id="hero-glitch">Ecuaciones e inecuaciones<br>en el mundo real</span></h1>
+<p class="lead">Aprende a <span class="rot" id="rot"></span><span class="caret"></span></p>
+<div class="stats"><div><b data-count="5">0</b>tópicos</div><div><b data-count="15">0</b>casos prácticos</div><div><b data-count="3">0</b>modalidades</div></div>
+<div class="row" style="margin-top:1.5rem"><button class="pb glitch-btn" onclick="go(0,0)"><span class="g">Iniciar Simulador</span></button></div></section>
+<h2 style="margin-top:2.5rem">Selecciona un Módulo</h2>
+<div class="grid">${T.map((t,i)=>`<button class="card tc glitch-btn${t.c.length?'':' off'}" onclick="go(${i})"><span class="tn">Tópico ${i+1}</span><b class="g">${t.n}</b><small>${t.c.length?'Disponible · 3 casos':'Próximamente'}</small></button>`).join('')}</div>
+<h3 style="margin-top:2.5rem;color:var(--mu)">Metodología de Evaluación</h3>
+<div class="g3" style="margin-top:1rem"><div class="card"><h3>1. Aplicación</h3><p>Plantea y resuelve el modelo matemático de una situación real.</p></div><div class="card"><h3>2. Auditoría de errores</h3><p>Encuentra el paso equivocado de un tercero y corrígelo.</p></div><div class="card"><h3>3. Decisión</h3><p>Resuelve y toma una decisión técnica que cumpla las reglas del entorno.</p></div></div>
+<div class="card" style="margin-top:2.5rem;background:rgba(11,17,32,.5);border-color:#22d3ee44;text-align:center;box-shadow:none"><h4 style="color:var(--ac);margin:0 0 .5rem">Educación de calidad (ODS 4)</h4>
+<p style="color:var(--mu);font-size:.9rem;margin:0">Este simulador aporta a la meta 4.4: desarrollar competencias técnicas útiles para el empleo. Es gratuito, funciona en dispositivos móviles y permite avanzar a tu propio ritmo, fomentando el autoaprendizaje guiado.</p></div>`;
+
+// ---- state + logic ----
+let S={t:-1,c:0,s:0,ok:{},fb:'',last:null,js:0};const K=()=>S.t+'-'+S.c,cur=()=>T[S.t].c[S.c];
+function go(t,c=0){S.t=t;S.c=c;S.s=0;S.fb='';render();$('#side').classList.remove('open');scrollTo(0,0)}
+function say(h,k){snd(k=='bad'?'bad':'info');const f=$('#fb');f.className='fb '+k;f.innerHTML=h;math(f)}
+function adv(m){const c=cur();if(S.s>=c.st.length-1){S.ok[K()]=1;S.js=1;snd(T[S.t].c.every((_,j)=>S.ok[S.t+'-'+j])?'badge':'done')}else{S.s++;snd('ok')}S.fb=`<div class="fb ok">${m}</div>`;render()}
+function chk(){const st=cur().st[S.s],a=/\d/.test($('#ans').value)?nums($('#ans').value,st.a.length).sort((p,q)=>p-q):[],b=[...st.a].sort((p,q)=>p-q);
+  if(a.length==b.length&&a.every((x,i)=>Math.abs(x-b[i])<1e-6))adv(st.why||'Correcto.');else say((a.length?'Todavía no. ':'Escribe valores numéricos. ')+st.h,'bad')}
+function pick(i){const st=cur().st[S.s];i==st.ok?adv(st.why):say('Esa línea no contiene el error clave de razonamiento. Revisa de nuevo.','bad')}
+function ch(i){const st=cur().st[S.s];i==st.ok?adv(st.why):say(st.o[i][1],'bad')}
+function ans(){const st=cur().st[S.s];say(st.k=='in'?'Respuesta: <b>'+st.a.join(' y ')+(st.u?' '+st.u:'')+'</b>. '+st.why:st.k=='pick'?'El error está en la línea <b>'+(st.ok+1)+'</b>. '+st.why:'La opción correcta es la <b>'+'ABC'[st.ok]+'</b>. '+st.why,'ok')}
+function stage(st){const fb='<div id="fb" class="fb"></div>';
+  if(st.k=='in')return`<div class="card"><label for="ans"><b class="tw">${st.q}</b></label><div class="row"><input id="ans" autocomplete="off" placeholder="Tu respuesta" onkeydown="if(event.key=='Enter')chk()"><span>${st.u||''}</span><button class="pb glitch-btn" onclick="chk()"><span class="g">Validar</span></button></div>${fb}</div>`;
+  if(st.k=='pick')return`<div class="card"><b class="tw">${st.q}</b>${st.s.map((s,i)=>`<button class="opt glitch-btn" onclick="pick(${i})"><b>${i+1}</b><span class="g">${s}</span></button>`).join('')}${fb}</div>`;
+  return`<div class="card"><b class="tw">${st.q}</b>${st.o.map((o,i)=>`<button class="opt glitch-btn" onclick="ch(${i})"><b>${'ABC'[i]}</b><span class="g">${o[0]}</span></button>`).join('')}${fb}</div>`}
+function nextGo(){S.c<2?go(S.t,S.c+1):S.t<4?go(S.t+1):go(-1)}
+// modal, theory, step-by-step solution, compendium
+function op(t,h,raw){snd('open');$('#mt').innerHTML=t;$('#mc').innerHTML=h;$('#m').classList.add('on');document.querySelectorAll('#mc .tw').forEach(e=>typeIn(e));if(!raw)math($('#mc'));mountPl($('#mc'));nlMount($('#mc'))}
+function cm(){$('#m').classList.remove('on')}
+function play(L,i=0){if(i>=L.length){L.length&&L[L.length-1].classList.add('fin');return}const d=L[i];if(!d.isConnected)return;d.hidden=false;snd('step');typeIn(d.querySelector('.tx'),false,()=>setTimeout(()=>play(L,i+1),380))}
+function th(){op('Módulo teórico',`<p class="tw">${cur().th}</p>${cur().thf?`<div data-pl="${cur().thf}"></div>`:''}`)}
+function rs(){op('Resolución paso a paso',cur().sol.map((x,i)=>`<div class="step" hidden><span class="n">${i+1}</span><span class="tx">${x}</span></div>`).join('')+'<div class="tools"><button class="sb glitch-btn" onclick="rs()"><span class="g">Repetir animación</span></button></div>',1);play([...document.querySelectorAll('#mc .step')])};
+function comp(){if(S.t<0){op('Compendio','<p>Selecciona un tópico en el panel de navegación para acceder a su compendio.</p>');return}
+  const t=T[S.t];op('Compendio · '+t.n,t.comp||'<p>El compendio de este tópico se habilitará junto con sus casos.</p>');qviz();xviz();iviz()}
+// ---- render ----
+function render(){
+  const kk=S.t+'-'+S.c+'-'+S.s;S.an=S.last!==kk;S.last=kk;const an=S.an||S.js;S.js=0;
+  $('#comp-btn').style.display=S.t<0?'none':'flex';
+  const tot=Object.keys(S.ok).length;$('#pg').style.width=tot/15*100+'%';$('#pt').textContent=tot+' de 15 casos';
+  $('#nav').innerHTML=`<button class="nv glitch-btn ${S.t<0?'on':''}" onclick="go(-1)"><span class="g">Inicio</span></button><p class="crumb" style="margin:.8rem .6rem .3rem">Elige un tópico</p>`+T.map((t,i)=>{const all=t.c.length&&t.c.every((_,j)=>S.ok[i+'-'+j]);
+    return`<button class="nv glitch-btn ${S.t==i?'on':''} ${t.c.length?'':'dim'}" onclick="go(${i})"><span class="g">${i+1}. ${t.n}</span>${all?`<span class="med" title="Insignia de competencia">${ic('medal')}</span>`:''}</button><div class="cs">${t.c.length?t.c.map((c,j)=>`<i class="d ${S.ok[i+'-'+j]?'ok':''} ${S.t==i&&S.c==j?'cur':''}" title="${c.lvl}" onclick="go(${i},${j})"></i>`).join(''):'<small class="crumb">Próximamente</small>'}</div>`}).join('');
+  let h='';
+  if(S.t<0)h=HOME();
+  else if(!T[S.t].c.length)h=`<h1>${T[S.t].n}</h1><div class="card"><p>Este tópico se habilitará próximamente. Mientras tanto, prueba el Tópico 1 desde el menú.</p></div>`;
+  else{const c=cur(),sv=S.ok[K()];
+    h=`<p class="crumb">Tópico ${S.t+1} · Caso ${S.c+1} de 3<span class="chip">${c.lvl}</span></p><h2>${c.t}</h2><div class="card"><p class="tw" style="margin:0">${c.ctx}</p>${c.rule?`<p class="rule">${c.rule}</p>`:''}</div>${c.nl&&(sv||!(c.ch.hide||c.nl.s))?numLine({...c.nl,animate:!!an}):''}${plot(c.ch,sv,an)}`;
+    if(c.st.length>1&&!sv)h+=`<p class="crumb">Etapa ${S.s+1} de ${c.st.length}</p>`;
+    h+=sv?`<div class="card"><h3>Caso completado</h3>${S.fb}<div class="row"><button class="pb glitch-btn" onclick="nextGo()"><span class="g">${S.c<2?'Siguiente caso':S.t<4?'Siguiente tópico':'Volver al inicio'}</span></button></div></div>`:stage(c.st[S.s])+S.fb;
+    h+=`<div class="tools"><button class="sb glitch-btn" onclick="th()">${ic('book')}<span class="g">Módulo teórico</span></button><button class="sb glitch-btn" onclick="rs()">${ic('list')}<span class="g">Ver resolución</span></button>${sv?'':`<button class="sb glitch-btn" id="ra" disabled onclick="ans()">${ic('eye')}<span class="g" id="rt">Mostrar respuesta (30 s)</span></button>`}</div>`}
+  $('#main').innerHTML=h;document.querySelectorAll('#main .tw').forEach(e=>typeIn(e,!S.an));math($('#main'));CLOUD.sync();
+  if(S.t<0)initHome({words:['plantear modelos','auditar procedimientos','tomar decisiones','resolver con precisión']});
+  if(S.an)S.t0=Date.now();clearInterval(S.iv);
+  if($('#ra')){const tk=()=>{const b=$('#ra');if(!b)return clearInterval(S.iv);const r=30-Math.floor((Date.now()-S.t0)/1000);
+    if(r<=0){b.disabled=false;snd('unlock');$('#rt').textContent='Mostrar respuesta';$('#rt').dataset.text='Mostrar respuesta';clearInterval(S.iv)}else $('#rt').textContent='Mostrar respuesta ('+r+' s)'};tk();S.iv=setInterval(tk,1000)}
+}
+addEventListener('keydown',e=>{if(e.key=='Escape')cm()});
+$('#mb').addEventListener('click',()=>$('#side').classList.toggle('open'));
+addEventListener('DOMContentLoaded',render);
+</script></body></html>
